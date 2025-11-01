@@ -41,6 +41,14 @@ const imgUrl = (p?: string | null) => {
   return `/images/${p}`;
 };
 
+function calcMRPFromDiscount(discounted: number) {
+  // Option B: show MRP such that discounted is 30% OFF → discounted = 0.7 * MRP
+  // Round to nearest 10 for retail-style price (looks like your screenshot)
+  const mrpRaw = discounted / 0.7;
+  const rounded = Math.round(mrpRaw / 10) * 10;
+  return Math.max(rounded, Math.ceil(mrpRaw)); // safety
+}
+
 function normalizeProduct(raw: any): Product {
   const variants: Variant[] = Array.isArray(raw.variants) ? raw.variants : [];
 
@@ -271,7 +279,7 @@ export default function SaleListingPage() {
       if (categoryFilter === "ethnic" && !isEthnic(p)) return false;
       if (categoryFilter === "western" && !isWestern(p)) return false;
 
-      // Price overlap
+      // Price overlap (based on discounted range minPrice–maxPrice)
       const priceOverlap =
         (p.minPrice <= priceMax && p.maxPrice >= priceMin) ||
         (p.minPrice >= priceMin && p.minPrice <= priceMax);
@@ -326,7 +334,7 @@ export default function SaleListingPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Banners (compact spacing) */}
+      {/* Banners */}
       <section aria-label="Sale banners">
         <div className="mx-auto max-w-7xl px-4 pt-12 pb-4">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -355,7 +363,7 @@ export default function SaleListingPage() {
         </div>
       </section>
 
-      {/* Filters bar (simple & elegant) */}
+      {/* Filters bar */}
       <div className="sticky top-0 z-30 border-y border-gray-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
         <div className="mx-auto max-w-7xl px-4 py-3">
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
@@ -459,7 +467,7 @@ export default function SaleListingPage() {
               </div>
             </div>
 
-            {/* Actions / Active chips */}
+            {/* Actions */}
             <div className="flex items-center gap-2">
               <button
                 onClick={clearFilters}
@@ -472,7 +480,7 @@ export default function SaleListingPage() {
             </div>
           </div>
 
-          {/* Active selections (chips) */}
+          {/* Active selections */}
           <div className="mt-2 flex flex-wrap gap-2">
             {categoryFilter !== "all" && (
               <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 text-gray-800 border border-gray-200">
@@ -539,6 +547,12 @@ export default function SaleListingPage() {
                 ? `?color=${encodeURIComponent(firstInStock.colour)}&size=${encodeURIComponent(firstInStock.size)}`
                 : "";
 
+              // Price presentation (Option B)
+              const discountedMin = Math.round(p.minPrice);
+              const discountedMax = Math.round(p.maxPrice);
+              const mrpMin = calcMRPFromDiscount(discountedMin);
+              const mrpMax = calcMRPFromDiscount(discountedMax);
+
               return (
                 <Link
                   key={`${p._id}-${p.product_code}`}
@@ -552,6 +566,12 @@ export default function SaleListingPage() {
                       fill
                       className="object-cover group-hover:scale-110 transition duration-500"
                     />
+                    {/* 30% OFF Badge */}
+                    <div className="absolute left-2 top-2">
+                      <span className="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 text-white">
+                        30% OFF
+                      </span>
+                    </div>
                     {/* Wishlist */}
                     <button
                       onClick={(e) => {
@@ -577,13 +597,19 @@ export default function SaleListingPage() {
                   </div>
 
                   <div className="p-3">
-                    <h3 className="font-medium text-gray-900 text-sm mb-1 leading-tight line-clamp-2">{name}</h3>
-                    <p className="text-xs text-gray-500 mb-2">Code: {p.product_code}</p>
+                    <h3 className="font-medium text-gray-900 text-sm mb-1 leading-tight line-clamp-2">
+                      {name}
+                    </h3>
 
-                    <div className="flex items-center justify-between mb-2">
+                    {/* Price block (no product code on sale grid) */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs text-gray-500 line-through">
+                        ₹{mrpMin}
+                        {discountedMin !== discountedMax && ` - ₹${mrpMax}`}
+                      </span>
                       <span className="text-sm font-bold text-gray-900">
-                        ₹{p.minPrice}
-                        {p.minPrice !== p.maxPrice && ` - ₹${p.maxPrice}`}
+                        ₹{discountedMin}
+                        {discountedMin !== discountedMax && ` - ₹${discountedMax}`}
                       </span>
                     </div>
 

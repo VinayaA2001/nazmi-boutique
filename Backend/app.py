@@ -25,12 +25,22 @@ load_dotenv()
 app = Flask(__name__)
 
 # CORS (allow Next.js dev host)
-CLIENT_ORIGIN = os.getenv("CLIENT_ORIGIN", "http://localhost:3000")
+CLIENT_ORIGIN = os.getenv("CLIENT_ORIGIN", "")
 CORS(
     app,
     supports_credentials=True,
-    resources={r"/api/*": {"origins": [CLIENT_ORIGIN]}},
+    resources={
+        r"/api/*": {
+            "origins": [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                # ⬇️ ADD your production frontend origin EXACTLY (Vercel/other)
+                "https://your-frontend-domain.vercel.app",
+            ]
+        }
+    },
 )
+
 
 # ------------------- CONFIG -------------------
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -881,6 +891,21 @@ def payments_verify_success():
             )
             if ord_doc.get("referral_code"):
                 db.referral_codes.update_one({"code": ord_doc["referral_code"]}, {"$inc": {"uses": 1}})
+    # Save payment id for refunds/history
+    db.orders.update_one(
+        {"_id": ord_doc["_id"]},
+        {"$set": {"last_payment_id": payment_id}}
+    )
+@app.get("/api/orders/by-id/<order_id>")
+def get_order_by_id(order_id):
+    _id = oid(order_id)
+    if not _id:
+        return jsonify({"error": "Invalid id"}), 400
+    o = db.orders.find_one({"_id": _id})
+    if not o:
+        return jsonify({"error": "Not found"}), 404
+    o["_id"] = str(o["_id"])
+    return jsonify(o)
 
     _persist_payment_stub("payment", payment_id, {
         "razorpay_payment_id": payment_id,

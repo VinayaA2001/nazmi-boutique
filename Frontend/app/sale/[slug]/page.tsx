@@ -33,6 +33,10 @@ type Product = {
   maxPrice: number;
 };
 
+/* ---------- Env ---------- */
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+
 /* ---------- Helpers ---------- */
 const imgUrl = (p?: string | null) => {
   if (!p || typeof p !== "string") return "/images/placeholder.jpg";
@@ -50,6 +54,12 @@ const makeSlug = (p: Product) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)+/g, "");
+
+function calcMRPFromDiscount(discounted: number) {
+  const mrpRaw = discounted / 0.7; // 30% OFF -> discounted = 70% of MRP
+  const rounded = Math.round(mrpRaw / 10) * 10;
+  return Math.max(rounded, Math.ceil(mrpRaw));
+}
 
 /* ---------- Page ---------- */
 export default function SaleSlugPage() {
@@ -71,6 +81,21 @@ export default function SaleSlugPage() {
   const [wishlistIds, setWishlistIds] = useState<Set<string>>(new Set());
   const [showCartToast, setShowCartToast] = useState(false);
   const [addedName, setAddedName] = useState("");
+
+  // checkout modal
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [ship, setShip] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    line1: "",
+    line2: "",
+    city: "",
+    state: "Kerala",
+    pincode: "",
+    country: "India",
+  });
 
   /* ---------- normalize ---------- */
   function normalize(p: any): Product {
@@ -133,7 +158,10 @@ export default function SaleSlugPage() {
         if (one.ok) {
           const raw = await one.json();
           const cat = String(raw.category || "").toLowerCase();
-          const isSale = /\bsale\b/.test(cat) || raw.isSale === true || (Array.isArray(raw.tags) && raw.tags.map((t: any) => String(t).toLowerCase()).includes("sale"));
+          const isSale =
+            /\bsale\b/.test(cat) ||
+            raw.isSale === true ||
+            (Array.isArray(raw.tags) && raw.tags.map((t: any) => String(t).toLowerCase()).includes("sale"));
           if (!isSale) throw new Error("Product is not a sale item");
           setProduct(normalize(raw));
           return;
@@ -177,7 +205,6 @@ export default function SaleSlugPage() {
     if (c) q.set("color", c);
     if (s) q.set("size", s);
     const finalSlug = product.slug || makeSlug(product);
-    // LOWERCASE route
     router.replace(`/sale/${finalSlug}?${q.toString()}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
@@ -217,8 +244,8 @@ export default function SaleSlugPage() {
 
   const gallery = useMemo(() => {
     if (!product) return ["/images/placeholder.jpg"];
-    if (variant?.images?.length) return variant.images.map(imgUrl);
-    if (product.colorImages?.[color]?.length) return product.colorImages[color];
+    if (variant?.images?.length) return (variant.images || []).map(imgUrl);
+    if (product.colorImages?.[color]?.length) return product.colorImages[color]!;
     return product.images;
   }, [product, variant, color]);
 
@@ -226,6 +253,7 @@ export default function SaleSlugPage() {
 
   const price = variant ? variant.price : (product?.minPrice || 0);
   const stock = variant ? variant.stock : (product?.totalStock || 0);
+  const mrp = calcMRPFromDiscount(price);
 
   const colorsAvail = useMemo(() => {
     if (!product) return [];
@@ -305,6 +333,114 @@ export default function SaleSlugPage() {
     setTimeout(() => setShowCartToast(false), 2500);
   };
 
+  /* ---------- simple checkout ---------- */
+  const subtotal = Math.round(price * qty);
+  const shipping = subtotal >= 2000 ? 0 : 60;
+  const grandTotal = subtotal + shipping;
+
+  async function orderNow() {
+    if (!product || !variant) { alert("Select color/size"); return; }
+    if (!ship.name || !ship.phone || !ship.city || !ship.state || !ship.pincode) {
+      alert("Please fill name, phone, address (city/state/pincode).");
+      return;
+    }
+    try {
+      setPaying(true);
+
+      // 1) Create order on server
+      const orderRes = await fetch(`${API_BASE}/api/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [
+            {
+              product_id: product._id,
+              quantity: qty,
+              price: price, // discounted unit price
+              size: variant.size,
+              color: variant.colour,
+              variant_id: variant._id,
+              product_code: product.product_code,
+            },
+          ],
+          customer_name: ship.name,
+          customer_email: ship.email || undefined,
+          customer_phone: ship.phone,
+          shipping_address: `${ship.line1} ${ship.line2} ${ship.city} ${ship.state} ${ship.pincode} ${ship.country}`.trim(),
+        }),
+      });
+      if (!orderRes.ok) {
+        const err = await orderRes.json().catch(() => ({}));
+        throw new Error(err?.error || `Order create failed (${orderRes.status})`);
+      }
+      const orderJson = await orderRes.json();
+      const orderNumber = orderJson?.order_number as string;
+
+      // 2) Create Razorpay order
+      const payRes = await fetch(`${API_BASE}/api/payments/create-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // rely on server to compute final amount from order_number
+        body: JSON.stringify({ order_number: orderNumber }),
+      });
+      if (!payRes.ok) {
+        const err = await payRes.json().catch(() => ({}));
+        throw new Error(err?.error || `Payment create failed (${payRes.status})`);
+      }
+      const payJson = await payRes.json();
+      const rzpOrderId = payJson?.order_id || payJson?.id;
+
+      // 3) Open Razorpay Checkout
+      // @ts-ignore
+      const rzp = new window.Razorpay({
+        key: RZP_KEY_ID,
+        amount: payJson.amount,
+        currency: "INR",
+        name: "Nazmi Boutique",
+        description: displayName(product),
+        order_id: rzpOrderId,
+        prefill: { name: ship.name, email: ship.email || "", contact: ship.phone || "" },
+        notes: { order_number: orderNumber },
+        handler: async function (response: any) {
+          const verifyBody = {
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_signature: response.razorpay_signature,
+            order_number: orderNumber,
+          };
+
+          // new verify endpoint; fallback to legacy if needed
+          let ok = false;
+          try {
+            const v1 = await fetch(`${API_BASE}/api/payments/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(verifyBody),
+            });
+            if (v1.ok) ok = true;
+          } catch {}
+          if (!ok) {
+            await fetch(`${API_BASE}/api/payment-success`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(verifyBody),
+            });
+          }
+
+          alert("Payment successful! Thank you for your order.");
+          setShowCheckout(false);
+          router.push("/thank-you");
+        },
+        modal: { ondismiss: () => setPaying(false) },
+      });
+
+      rzp.open();
+    } catch (e: any) {
+      alert(e.message || "Checkout failed");
+      setPaying(false);
+    }
+  }
+
   /* ---------- RENDER ---------- */
   if (loading) {
     return (
@@ -340,6 +476,12 @@ export default function SaleSlugPage() {
           <div>
             <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
               <Image src={imgUrl(gallery[imgIndex])} alt={displayName(product)} fill className="object-cover" />
+              {/* 30% OFF badge */}
+              <div className="absolute left-2 top-2">
+                <span className="inline-flex items-center px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 text-white">
+                  30% OFF
+                </span>
+              </div>
             </div>
             {gallery.length > 1 && (
               <div className="grid grid-cols-4 gap-2 mt-3">
@@ -361,7 +503,6 @@ export default function SaleSlugPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h1 className="text-2xl md:text-3xl font-light text-gray-900">{displayName(product)}</h1>
-                <p className="text-sm text-gray-500 mt-1">Product Code: {product.product_code}</p>
               </div>
               <button
                 onClick={toggleWishlist}
@@ -375,12 +516,34 @@ export default function SaleSlugPage() {
               </button>
             </div>
 
+            {/* Price block with MRP (cut) + Discounted + Shipping message */}
+            <div className="mt-3">
+              <div className="flex items-baseline gap-3">
+                <span className="text-gray-500 line-through">₹{mrp}</span>
+                <span className="text-2xl font-semibold text-gray-900">₹{Math.round(price)}</span>
+                <span className="text-xs font-semibold bg-emerald-600 text-white px-2 py-1 rounded">30% OFF</span>
+              </div>
+
+              {/* Shipping ribbon like the screenshot */}
+              {subtotal >= 2000 ? (
+                <p className="mt-2 inline-flex items-center gap-2 text-sm text-emerald-700">
+                  <Check className="w-4 h-4" />
+                  Free Shipping on this order
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-gray-600">Shipping: ₹60 (free on orders ₹2000+)</p>
+              )}
+
+              <p className="text-xs text-gray-500 mt-1">Inclusive of all taxes</p>
+            </div>
+
+            {/* Details list similar to your reference */}
             <div className="mt-4 text-sm text-gray-700 space-y-1">
+              <div><span className="text-gray-500">Product Code:</span> {product.product_code || "-"}</div>
               <div><span className="text-gray-500">Material:</span> {product.material || "-"}</div>
-              <div><span className="text-gray-500">Category:</span> {product.category || "-"}</div>
-              <div><span className="text-gray-500">Price:</span> ₹{price}{product.minPrice !== product.maxPrice && ` (₹${product.minPrice} - ₹${product.maxPrice})`}</div>
-              <div><span className="text-gray-500">Available Colors:</span> {(product.availableColors || []).join(", ") || "-"}</div>
-              <div><span className="text-gray-500">Available Sizes:</span> {(product.availableSizes || []).join(", ") || "-"}</div>
+              <div><span className="text-gray-500">Price:</span> ₹{Math.round(price)}</div>
+              <div><span className="text-gray-500">Color:</span> {color || "-"}</div>
+              <div><span className="text-gray-500">Size:</span> {size || "-"}</div>
               <div><span className="text-gray-500">Stock:</span> {stock}</div>
             </div>
 
@@ -455,7 +618,7 @@ export default function SaleSlugPage() {
             </div>
 
             {/* Actions */}
-            <div className="mt-6 flex gap-3">
+            <div className="mt-6 flex flex-wrap gap-3">
               <button
                 disabled={!variant || stock === 0}
                 onClick={addToCart}
@@ -466,10 +629,90 @@ export default function SaleSlugPage() {
                 <ShoppingCart className="w-4 h-4" />
                 Add to Cart
               </button>
+
+              <button
+                disabled={!variant || stock === 0}
+                onClick={() => setShowCheckout(true)}
+                className={`flex-1 border border-black text-black py-3 px-6 rounded-lg hover:bg-gray-50 transition-colors font-medium ${
+                  (!variant || stock === 0) ? "opacity-50 cursor-not-allowed" : ""
+                }`}
+              >
+                Order Now
+              </button>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Checkout Modal */}
+      {showCheckout && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-white rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h3 className="text-lg font-semibold">Checkout</h3>
+              <button onClick={() => setShowCheckout(false)} className="p-2 rounded hover:bg-gray-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4 p-5">
+              {/* Shipping form */}
+              <div className="space-y-3">
+                <h4 className="font-medium text-gray-900">Shipping Details</h4>
+                {[
+                  ["name", "Full Name"],
+                  ["email", "Email (optional)"],
+                  ["phone", "Phone"],
+                  ["line1", "Address Line 1"],
+                  ["line2", "Address Line 2 (optional)"],
+                  ["city", "City"],
+                  ["state", "State"],
+                  ["pincode", "Pincode"],
+                  ["country", "Country"],
+                ].map(([k, label]) => (
+                  <input
+                    key={k}
+                    value={(ship as any)[k]}
+                    onChange={(e) => setShip((s) => ({ ...s, [k]: e.target.value }))}
+                    placeholder={label}
+                    className="w-full h-11 px-3 rounded-lg border border-gray-300"
+                  />
+                ))}
+              </div>
+
+              {/* Order summary */}
+              <div className="space-y-3">
+                <h4 className="font-medium text-gray-900">Order Summary</h4>
+                <div className="flex items-center gap-3">
+                  <div className="relative w-16 h-16 rounded overflow-hidden bg-gray-100">
+                    <Image src={imgUrl(gallery[0])} alt="item" fill className="object-cover" />
+                  </div>
+                  <div className="text-sm">
+                    <p className="font-medium">{displayName(product)}</p>
+                    <p className="text-gray-500">Color: {color} • Size: {size}</p>
+                    <p className="text-gray-500">Qty: {qty}</p>
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 text-sm space-y-1">
+                  <div className="flex justify-between"><span>Item total</span><span>₹{subtotal}</span></div>
+                  <div className="flex justify-between"><span>Shipping</span><span>{shipping === 0 ? "FREE" : `₹${shipping}`}</span></div>
+                  <div className="flex justify-between font-semibold text-gray-900"><span>Total</span><span>₹{grandTotal}</span></div>
+                  <p className="text-xs text-gray-500">Free delivery on orders ₹2000 and above. ₹60 below ₹2000.</p>
+                </div>
+
+                <button
+                  onClick={orderNow}
+                  disabled={paying}
+                  className="w-full h-11 rounded-lg bg-black text-white font-medium hover:bg-gray-800 disabled:opacity-60"
+                >
+                  {paying ? "Processing…" : "Pay Securely"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cart toast */}
       {showCartToast && (
