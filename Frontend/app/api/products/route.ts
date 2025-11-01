@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     const rawCategory = norm(url.searchParams.get("category"));
     const inStockOnly = truthy(url.searchParams.get("inStock"));
 
-    // ✅ Use deployed backend URL if available, otherwise local fallback
+    // ✅ Use deployed backend URL if available, otherwise fallback
     const backendURL =
       process.env.NEXT_PUBLIC_API_URL ||
       "https://nazmi-boutique-2.onrender.com/api/products";
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
     let products: any[] = await res.json();
 
-    // ✅ Filter by category (defensive)
+    // ✅ Filter by category
     if (rawCategory) {
       if (rawCategory === "sale") {
         products = products.filter((p) => isCategory(p, "sale"));
