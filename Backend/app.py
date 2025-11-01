@@ -23,7 +23,11 @@ import hashlib
 load_dotenv()
 
 # ------------------- APP -------------------
+from flask_cors import CORS
+
 app = Flask(__name__)
+CORS(app)
+
 
 # CORS (allow Next.js dev host)
 CLIENT_ORIGIN = os.getenv("CLIENT_ORIGIN", "")
