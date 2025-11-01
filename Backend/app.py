@@ -18,6 +18,7 @@ import jwt
 import hmac
 import hashlib
 
+
 # ------------------- LOAD .env -------------------
 load_dotenv()
 
