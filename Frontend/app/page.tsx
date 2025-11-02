@@ -192,13 +192,13 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen pb-14 sm:pb-0">
-      {/* ✅ HERO */}
+      {/* ✅ CLEAN HERO SECTION - IMAGE ONLY */}
       <section
-        className="relative mt-[2px] h-[65vh] sm:h-[72vh] md:h-[78vh] min-h-[460px] max-h-[760px] bg-black"
-        aria-label="Hero"
+        className="relative h-[65vh] sm:h-[72vh] md:h-[78vh] min-h-[460px] max-h-[760px] bg-black overflow-hidden"
+        aria-label="Hero Image Slider"
       >
+        {/* Slomo component - just the image slider */}
         <Slomo />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent pointer-events-none" />
       </section>
 
       {/* CATEGORIES GRID - Much reduced gap */}

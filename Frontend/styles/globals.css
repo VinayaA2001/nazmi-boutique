@@ -3,41 +3,6 @@
 @tailwind utilities;
 @import "./typography.css";
 
-/* Custom butterfly animations */
-@keyframes butterfly-flight {
-  0% {
-    transform: translate(-50%, -50%) translateX(-100vw) translateY(-100px) rotate(0deg);
-  }
-  25% {
-    transform: translate(-50%, -50%) translateX(-50vw) translateY(-200px) rotate(45deg);
-  }
-  50% {
-    transform: translate(-50%, -50%) translateX(0) translateY(-100px) rotate(0deg);
-  }
-  75% {
-    transform: translate(-50%, -50%) translateX(50vw) translateY(-200px) rotate(-45deg);
-  }
-  100% {
-    transform: translate(-50%, -50%) translateX(100vw) translateY(-100px) rotate(0deg);
-  }
-}
-
-@keyframes butterfly-flap {
-  0%, 100% {
-    transform: rotate(0deg) scaleY(1);
-  }
-  50% {
-    transform: rotate(5deg) scaleY(0.9);
-  }
-}
-
-.animate-butterfly-flight {
-  animation: butterfly-flight 15s ease-in-out infinite;
-}
-
-.animate-butterfly-flap {
-  animation: butterfly-flap 0.5s ease-in-out infinite;
-}
 /* ========== CSS CUSTOM PROPERTIES ========== */
 :root {
   /* Premium Color Palette */
@@ -130,8 +95,7 @@
   --z-loading: 1090;
 }
 
-/* ========== CRITICAL GAP FIXES ========== */
-/* Reset all potential gap sources */
+/* ========== BASE RESETS & CRITICAL FIXES ========== */
 *,
 *::before,
 *::after {
@@ -158,49 +122,134 @@ body {
   overflow-x: hidden;
 }
 
-/* ========== SLOMO COMPONENT GAP FIXES ========== */
-/* Critical fixes for Slomo component gaps */
-.slomo-container,
-[class*="slomo"],
-[class*="carousel"],
-[class*="slider"] {
+/* ========== HERO SECTION CRITICAL FIXES ========== */
+/* Hero section container fixes */
+.hero-section,
+[class*="hero"] {
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  height: 100% !important;
   line-height: 0 !important;
+  background-color: #000000; /* Fallback background */
 }
 
-/* Fix for Next.js Image component gaps */
-.slomo-image-container,
-.slomo-image-wrapper {
-  display: block !important;
+/* Slomo component specific fixes */
+.slomo-container,
+[class*="slomo"] {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
   line-height: 0 !important;
   font-size: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-/* Remove gaps from image elements */
-.slomo-image-container img,
-.slomo-image-wrapper img {
+/* Background image hero section - FULL IMAGE DISPLAY */
+.hero-bg-contain {
+  background-size: contain !important;
+  background-position: center top !important;
+  background-repeat: no-repeat !important;
+  background-color: #000000 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Smart responsive hero sizing */
+.hero-responsive {
+  height: clamp(400px, 85vh, 700px);
+  min-height: 400px;
+  max-height: 700px;
+}
+
+/* Mobile-first hero adjustments */
+@media (max-width: 768px) {
+  .hero-responsive {
+    height: clamp(350px, 75vh, 600px);
+    min-height: 350px;
+    max-height: 600px;
+  }
+  
+  /* Mobile-specific background sizing */
+  .hero-bg-contain {
+    background-size: contain !important;
+    background-position: center top !important;
+  }
+}
+
+/* Tablet and desktop adjustments */
+@media (min-width: 769px) {
+  .hero-bg-contain {
+    background-size: contain !important;
+    background-position: center center !important;
+  }
+}
+
+/* Critical image fixes for hero sections using img tags */
+.hero-image-fix,
+[class*="hero"] img,
+[class*="slomo"] img {
   display: block !important;
   line-height: 0 !important;
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important; /* Changed to contain for full image display */
+  object-position: center top !important;
 }
 
-/* Fix for flex/grid parents */
-.slomo-parent,
-.carousel-parent {
-  gap: 0 !important;
-  row-gap: 0 !important;
-  column-gap: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
+/* Mobile image adjustments */
+@media (max-width: 768px) {
+  .hero-image-fix,
+  [class*="hero"] img,
+  [class*="slomo"] img {
+    object-fit: contain !important;
+    object-position: center top !important;
+  }
 }
 
-/* ========== E-COMMERCE TYPOGRAPHY HIERARCHY ========== */
+/* ========== BUTTERFLY ANIMATIONS ========== */
+@keyframes butterfly-flight {
+  0% {
+    transform: translate(-50%, -50%) translateX(-100vw) translateY(-100px) rotate(0deg);
+  }
+  25% {
+    transform: translate(-50%, -50%) translateX(-50vw) translateY(-200px) rotate(45deg);
+  }
+  50% {
+    transform: translate(-50%, -50%) translateX(0) translateY(-100px) rotate(0deg);
+  }
+  75% {
+    transform: translate(-50%, -50%) translateX(50vw) translateY(-200px) rotate(-45deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) translateX(100vw) translateY(-100px) rotate(0deg);
+  }
+}
+
+@keyframes butterfly-flap {
+  0%, 100% {
+    transform: rotate(0deg) scaleY(1);
+  }
+  50% {
+    transform: rotate(5deg) scaleY(0.9);
+  }
+}
+
+.animate-butterfly-flight {
+  animation: butterfly-flight 15s ease-in-out infinite;
+}
+
+.animate-butterfly-flap {
+  animation: butterfly-flap 0.5s ease-in-out infinite;
+}
+
+/* ========== E-COMMERCE TYPOGRAPHY ========== */
 h1, .h1 {
   @extend .heading-1;
   color: var(--color-primary);
@@ -268,10 +317,6 @@ h4, .h4 {
     box-shadow: var(--shadow-lg);
   }
   
-  .btn-primary:active {
-    transform: translateY(0);
-  }
-  
   .btn-secondary {
     background: var(--color-surface);
     color: var(--color-primary);
@@ -297,20 +342,6 @@ h4, .h4 {
   .btn-add-to-cart:hover {
     background: linear-gradient(135deg, var(--color-secondary-dark), var(--color-secondary));
     transform: translateY(-1px) scale(1.02);
-    box-shadow: var(--shadow-lg);
-  }
-  
-  .btn-buy-now {
-    background: linear-gradient(135deg, var(--color-success), #047857);
-    color: var(--color-text-inverse);
-    border: none;
-    box-shadow: var(--shadow-md);
-    font-weight: var(--font-weight-semibold);
-  }
-  
-  .btn-buy-now:hover {
-    background: linear-gradient(135deg, #047857, var(--color-success));
-    transform: translateY(-1px);
     box-shadow: var(--shadow-lg);
   }
   
@@ -352,20 +383,6 @@ h4, .h4 {
     transform: scale(1.05);
   }
   
-  .product-card-actions {
-    position: absolute;
-    top: var(--space-sm);
-    right: var(--space-sm);
-    opacity: 0;
-    transform: translateY(-10px);
-    transition: all var(--transition-normal);
-  }
-  
-  .product-card:hover .product-card-actions {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  
   /* Sale Badge */
   .badge-sale {
     background: linear-gradient(135deg, var(--color-sale), #B91C1C);
@@ -373,12 +390,6 @@ h4, .h4 {
     font-weight: var(--font-weight-semibold);
     text-transform: uppercase;
     letter-spacing: var(--tracking-wide);
-  }
-  
-  .badge-new {
-    background: linear-gradient(135deg, var(--color-success), #047857);
-    color: var(--color-text-inverse);
-    font-weight: var(--font-weight-semibold);
   }
   
   /* Rating Stars */
@@ -395,112 +406,6 @@ h4, .h4 {
   .rating-star.filled {
     color: var(--color-rating);
   }
-  
-  /* Loading States */
-  .skeleton {
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-    background-size: 200% 100%;
-    animation: loading 1.5s infinite;
-    border-radius: var(--radius-md);
-  }
-  
-  .skeleton-text {
-    height: 1em;
-    margin-bottom: var(--space-sm);
-  }
-  
-  .skeleton-image {
-    aspect-ratio: 1;
-    width: 100%;
-  }
-  
-  /* Cart & Checkout Specific */
-  .cart-item {
-    background: var(--color-surface);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--color-border);
-    transition: all var(--transition-fast);
-  }
-  
-  .cart-item:hover {
-    border-color: var(--color-primary-light);
-    box-shadow: var(--shadow-sm);
-  }
-  
-  .quantity-selector {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-  
-  .quantity-btn {
-    background: var(--color-background);
-    border: none;
-    padding: var(--space-sm);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-  }
-  
-  .quantity-btn:hover {
-    background: var(--color-background-dark);
-  }
-  
-  .quantity-input {
-    border: none;
-    text-align: center;
-    width: 3rem;
-    background: var(--color-surface);
-    @extend .body-base;
-  }
-  
-  /* Navigation & Header */
-  .nav-link {
-    color: var(--color-text);
-    text-decoration: none;
-    transition: color var(--transition-fast);
-    position: relative;
-  }
-  
-  .nav-link:hover {
-    color: var(--color-primary);
-  }
-  
-  .nav-link.active {
-    color: var(--color-primary);
-    font-weight: var(--font-weight-medium);
-  }
-  
-  .nav-link.active::after {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--color-primary);
-    border-radius: var(--radius-full);
-  }
-  
-  /* Search & Filters */
-  .search-input {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    transition: all var(--transition-fast);
-  }
-  
-  .search-input:focus {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(139, 69, 19, 0.1);
-  }
-  
-  .filter-section {
-    background: var(--color-surface);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--color-border);
-  }
 }
 
 /* ========== LAYOUT UTILITIES ========== */
@@ -508,19 +413,15 @@ h4, .h4 {
   @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
 }
 
-.container-narrow {
-  @apply max-w-4xl mx-auto px-4 sm:px-6 lg:px-8;
-}
-
 .section-spacing {
-  @apply py-16 lg:py-24;
+  @apply py-12 lg:py-16;
 }
 
 .grid-products {
-  @apply grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6;
+  @apply grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4;
 }
 
-/* ========== E-COMMERCE ANIMATIONS ========== */
+/* ========== ANIMATIONS ========== */
 @keyframes loading {
   0% {
     background-position: 200% 0;
@@ -550,33 +451,6 @@ h4, .h4 {
   }
 }
 
-@keyframes cartBounce {
-  0%, 20%, 53%, 80%, 100% {
-    transform: translate3d(0, 0, 0);
-  }
-  40%, 43% {
-    transform: translate3d(0, -8px, 0);
-  }
-  70% {
-    transform: translate3d(0, -4px, 0);
-  }
-  90% {
-    transform: translate3d(0, -2px, 0);
-  }
-}
-
-@keyframes addedToCart {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.1);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
 .animate-slide-in {
   animation: slideInFromBottom var(--transition-normal) ease-out;
 }
@@ -585,21 +459,7 @@ h4, .h4 {
   animation: pulse-gentle 2s ease-in-out infinite;
 }
 
-.animate-cart-bounce {
-  animation: cartBounce 1s ease-in-out;
-}
-
-.animate-added-to-cart {
-  animation: addedToCart 0.3s ease-in-out;
-}
-
-/* ========== ACCESSIBILITY & UX ========== */
-.focus-ring:focus {
-  outline: none;
-  ring: 2px solid var(--color-primary);
-  ring-offset: 2px;
-}
-
+/* ========== ACCESSIBILITY ========== */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -617,13 +477,12 @@ h4, .h4 {
     --color-primary: #000000;
     --color-background: #FFFFFF;
     --color-text: #000000;
-    --color-border: #000000;
   }
 }
 
 /* ========== CUSTOM SCROLLBAR ========== */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -639,39 +498,6 @@ h4, .h4 {
   background: var(--color-primary-dark);
 }
 
-/* ========== PRINT STYLES ========== */
-@media print {
-  * {
-    background: transparent !important;
-    color: black !important;
-    box-shadow: none !important;
-    text-shadow: none !important;
-  }
-  
-  .no-print {
-    display: none !important;
-  }
-  
-  a, a:visited {
-    text-decoration: underline;
-  }
-  
-  .break-after {
-    page-break-after: always;
-  }
-}
-
-/* ========== DARK MODE SUPPORT ========== */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: #1A1A1A;
-    --color-surface: #2D2D2D;
-    --color-text: #FFFFFF;
-    --color-text-light: #A0A0A0;
-    --color-border: #404040;
-  }
-}
-
 /* ========== MOBILE OPTIMIZATIONS ========== */
 @media (max-width: 768px) {
   :root {
@@ -681,14 +507,11 @@ h4, .h4 {
   }
   
   .grid-products {
-    @apply grid-cols-2 gap-4;
+    @apply grid-cols-2 gap-3;
   }
   
-  .product-card-actions {
-    opacity: 1;
-    transform: translateY(0);
-    position: static;
-    margin-top: var(--space-sm);
+  .section-spacing {
+    @apply py-8 lg:py-12;
   }
 }
 
@@ -707,15 +530,6 @@ h4, .h4 {
   background: linear-gradient(135deg, var(--color-background), var(--color-surface));
 }
 
-.border-premium {
-  border: 1px solid var(--color-border);
-}
-
-.shadow-premium {
-  box-shadow: var(--shadow-xl);
-}
-
-/* Loading spinner for e-commerce */
 .loading-spinner {
   border: 2px solid var(--color-background);
   border-top: 2px solid var(--color-primary);
@@ -730,90 +544,62 @@ h4, .h4 {
   100% { transform: rotate(360deg); }
 }
 
-/* ========== HERO SECTION GAP FIXES ========== */
-/* Reset for hero sections only */
-[class*="hero"] h1,
-[class*="hero"] h2, 
-[class*="hero"] h3,
-[class*="hero"] h4,
-[class*="hero"] h5,
-[class*="hero"] h6,
-[class*="hero"] p {
+/* ========== GAP ELIMINATION FIXES ========== */
+.no-gap {
   margin: 0 !important;
   padding: 0 !important;
-  line-height: 1.2 !important;
-}
-
-/* Remove any default margins from typography classes in hero sections */
-[class*="hero"] .display-1,
-[class*="hero"] .display-2,
-[class*="hero"] .heading-1,
-[class*="hero"] .heading-2,
-[class*="hero"] .heading-3,
-[class*="hero"] .body-large,
-[class*="hero"] .body-base {
-  margin: 0 !important;
-  padding: 0 !important;
-  line-height: 1.2 !important;
-}
-
-/* ========== CRITICAL GAP ELIMINATION ========== */
-/* Remove all gaps from carousel/slider components */
-.carousel,
-.slider,
-.slideshow,
-[class*="carousel"],
-[class*="slider"],
-[class*="slideshow"] {
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  line-height: 0 !important;
-  font-size: 0 !important;
-}
-
-/* Fix for image containers */
-.carousel img,
-.slider img,
-.slideshow img,
-[class*="carousel"] img,
-[class*="slider"] img,
-[class*="slideshow"] img {
-  display: block !important;
-  line-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-}
-
-/* Ensure no gaps in flex containers */
-.flex-gap-fix {
   gap: 0 !important;
   row-gap: 0 !important;
   column-gap: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
 }
 
-/* Critical fix for Next.js Image component line-height issue */
-.next-image-fix {
+.line-height-reset {
   line-height: 0 !important;
-  font-size: 0 !important;
-  display: block !important;
 }
 
-.next-image-fix img {
-  line-height: 0 !important;
-  font-size: 0 !important;
-}
-
-/* Full-bleed utility: let sections escape page rails */
+/* Full-bleed utility */
 .full-bleed {
-  position: relative;
-  left: 50%;
-  right: 50%;
-  margin-left: -50vw;
-  margin-right: -50vw;
   width: 100vw;
-  max-width: 100vw;
+  margin-left: calc(-50vw + 50%);
+  margin-right: calc(-50vw + 50%);
+}
+
+/* ========== RESPONSIVE IMAGE FIXES ========== */
+.image-responsive {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.image-cover {
+  object-fit: cover;
+  object-position: center;
+}
+
+.image-contain {
+  object-fit: contain;
+  object-position: center;
+}
+
+/* ========== DARK MODE SUPPORT ========== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #1A1A1A;
+    --color-surface: #2D2D2D;
+    --color-text: #FFFFFF;
+    --color-text-light: #A0A0A0;
+  }
+}
+
+/* ========== PRINT STYLES ========== */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  * {
+    background: transparent !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
 }

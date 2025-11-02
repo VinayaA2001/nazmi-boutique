@@ -1,13 +1,25 @@
-// components/blocks/slomo.tsx
+// components/blocks/slomo.tsx - FIXED VERSION
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 
 const SLIDES = [
-  { id: 1, src: "/images/poster1.png", alt: "Summer Collection - Premium Traditional Wear" },
-  { id: 2, src: "/images/poster2.png", alt: "New Arrivals - Contemporary Western Styles" },
-  { id: 3, src: "/images/poster3.png", alt: "Limited Time Offer - Exclusive Boutique Deals" },
+  { 
+    id: 1, 
+    src: "/images/poster1.png",
+    alt: "Summer Collection"
+  },
+  { 
+    id: 2, 
+    src: "/images/poster2.png",
+    alt: "New Arrivals"
+  },
+  { 
+    id: 3, 
+    src: "/images/poster3.png", 
+    alt: "Special Offers"
+  },
 ];
 
 export default function Slomo() {
@@ -33,8 +45,10 @@ export default function Slomo() {
             src={slide.src}
             alt={slide.alt}
             fill
-            className="object-cover"
+            className="object-cover object-center"
             priority={index === 0}
+            sizes="100vw"
+            quality={85}
           />
         </div>
       ))}
