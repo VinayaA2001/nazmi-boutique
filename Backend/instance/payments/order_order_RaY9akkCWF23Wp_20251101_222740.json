@@ -1,0 +1,10 @@
+{
+  "razorpay_order_id": "order_RaY9akkCWF23Wp",
+  "amount": 2010.0,
+  "currency": "INR",
+  "user_id": null,
+  "user_email": null,
+  "order_number": null,
+  "created_at": "2025-11-01T16:57:40.415372",
+  "status": "created"
+}

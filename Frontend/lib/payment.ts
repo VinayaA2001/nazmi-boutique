@@ -3,7 +3,7 @@ export async function createBackendOrder(payload: {
   amount?: number;           // amount in paise (ONLY if no order_number)
   purpose?: string;
 }) {
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  const base = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
   const r = await fetch(`${base}/api/payments/create-order`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

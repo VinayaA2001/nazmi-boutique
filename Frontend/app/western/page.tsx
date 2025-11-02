@@ -547,8 +547,8 @@ export default function WesternPage() {
             </div>
             <div className="flex flex-col items-center">
               <RotateCcw className="w-7 h-7 text-gray-900 mb-2" />
-              <h4 className="font-medium text-gray-900 mb-1">Easy Returns</h4>
-              <p className="text-sm text-gray-600">7 Day Policy</p>
+              <h4 className="font-medium text-gray-900 mb-1">No Return</h4>
+              <p className="text-sm text-gray-600">No Return</p>
             </div>
             <div className="flex flex-col items-center">
               <Star className="w-7 h-7 text-gray-900 mb-2" />

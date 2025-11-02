@@ -544,7 +544,7 @@ export default function Page() {
             <div className="flex flex-col items-center">
               <Truck className="w-7 h-7 text-gray-900 mb-2" />
               <h4 className="font-medium text-gray-900 mb-1">Free Shipping</h4>
-              <p className="text-sm text-gray-600">Across Kerala</p>
+              <p className="text-sm text-gray-600">Above 2000 </p>
             </div>
             <div className="flex flex-col items-center">
               <Shield className="w-7 h-7 text-gray-900 mb-2" />
@@ -553,8 +553,8 @@ export default function Page() {
             </div>
             <div className="flex flex-col items-center">
               <RotateCcw className="w-7 h-7 text-gray-900 mb-2" />
-              <h4 className="font-medium text-gray-900 mb-1">Easy Returns</h4>
-              <p className="text-sm text-gray-600">7 Day Policy</p>
+              <h4 className="font-medium text-gray-900 mb-1">No Returns</h4>
+              <p className="text-sm text-gray-600">No Returns</p>
             </div>
             <div className="flex flex-col items-center">
               <Star className="w-7 h-7 text-gray-900 mb-2" />

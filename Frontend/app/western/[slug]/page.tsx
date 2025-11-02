@@ -3,7 +3,6 @@
 import type React from "react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import Image from "next/image";
 import {
   Heart,
@@ -13,17 +12,18 @@ import {
   X,
   Check,
   CreditCard,
-  ArrowLeft,
-  ZoomIn,
-  ZoomOut,
-  RefreshCw,
 } from "lucide-react";
 
-/* ========= Config ========= */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+import ProductCardClient, { type CardProduct } from "@/components/commerce/ProductCardClient";
 
-// Shipping rules
+/* ========= Config ========= */
+const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
+const API_BASE =
+  typeof window !== "undefined"
+    ? RAW_API_BASE.replace("localhost", window.location.hostname)
+    : RAW_API_BASE;
+
+/* ========= Shipping ========= */
 const SHIPPING_THRESHOLD = 2000;
 const SHIPPING_FEE = 60;
 
@@ -55,19 +55,11 @@ type Product = {
   maxPrice: number;
 };
 
-type ShippingInfo = {
-  name: string;
-  email: string;
-  phone: string;
-  address1: string;
-  address2: string;
-  city: string;
-  state: string;
-  pincode: string;
-  country: string;
-};
-
-type PaymentMethod = "upi" | "card" | "netbanking";
+declare global {
+  interface Window {
+    Razorpay?: any;
+  }
+}
 
 /* ========= Utils ========= */
 const MAX_OPTIONS = 10;
@@ -92,52 +84,131 @@ const inr = (n: number | string) => `₹${Number(n || 0).toLocaleString("en-IN")
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
 const same = (a?: string, b?: string) => norm(a) === norm(b);
 
-declare global {
-  interface Window {
-    Razorpay?: any;
+const firstImage = (p: Product) =>
+  Array.isArray(p.images) && p.images.length ? p.images[0] : "";
+
+const cloudinaryPublicId = (url: string) => {
+  try {
+    const path = new URL(url).pathname;
+    const parts = path.split("/").filter(Boolean);
+    const last = parts[parts.length - 1];
+    return (last || "").replace(/\.[a-z0-9]+$/i, "");
+  } catch {
+    const last = (url.split("/").filter(Boolean).pop() || "").replace(/\.[a-z0-9]+$/i, "");
+    return last;
   }
+};
+
+const canonicalKey = (p: Product) => {
+  const name = norm(p.product_name);
+  const mat = norm(p.material);
+  const imgK = cloudinaryPublicId(firstImage(p));
+  return `${name}__${mat}__${imgK}`;
+};
+
+// one-time shuffle
+function shuffleInPlace<T>(arr: T[]): T[] {
+  const a = [...arr];
+  const rand =
+    typeof crypto !== "undefined" && "getRandomValues" in crypto
+      ? () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32
+      : Math.random;
+  for (let m = a.length - 1; m > 0; m--) {
+    const i = Math.floor(rand() * (m + 1));
+    [a[m], a[i]] = [a[i], a[m]];
+  }
+  return a;
 }
 
-/* ========= Lazy-load Razorpay ========= */
-async function loadRazorpay(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  if (window.Razorpay) return true;
-  return new Promise((resolve) => {
-    const s = document.createElement("script");
-    s.src = "https://checkout.razorpay.com/v1/checkout.js";
-    s.async = true;
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.body.appendChild(s);
-  });
-}
+/* ========= Related Products ========= */
+function RelatedProductsClient({
+  currentId,
+  currentSlug,
+  category,
+  limit = 12,
+  title = "Related Products",
+}: {
+  currentId: string;
+  currentSlug?: string;
+  category: string;
+  limit?: number;
+  title?: string;
+}) {
+  const [rows, setRows] = useState<CardProduct[]>([]);
+  const [loading, setLoading] = useState(true);
 
-/* ========= Small Card for Related Section ========= */
-function ProductTile({ p }: { p: Product }) {
-  const cover = (p.images?.[0] ?? "/images/placeholder.jpg") as string;
-  const href = `/western/${makeSlug(p)}`;
+  useEffect(() => {
+    if (!category) return;
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const url = `/api/products?limit=${limit + 32}`;
+        const r = await fetch(url, { cache: "no-store" });
+        if (!r.ok) throw new Error("failed");
+        const data = await r.json();
+        const list: Product[] = Array.isArray(data?.products)
+          ? data.products
+          : Array.isArray(data)
+          ? data
+          : [];
+
+        const sameCategory = list.filter((p) => p && p.category && p._id && same(p.category, category));
+        const notCurrent = sameCategory.filter(
+          (p) => String(p._id) !== String(currentId) && !same(p.slug, currentSlug)
+        );
+
+        const seen = new Set<string>();
+        const unique: Product[] = [];
+        for (const p of notCurrent) {
+          const k = canonicalKey(p);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          unique.push(p);
+        }
+
+        const shuffled = shuffleInPlace(unique);
+        const mapped: CardProduct[] = shuffled.slice(0, limit).map((p) => ({
+          _id: String(p._id),
+          slug: p.slug || makeSlug(p),
+          name: p.product_name || "Untitled",
+          category: p.category,
+          images: (Array.isArray(p.images) && p.images.length ? p.images : ["/images/placeholder.jpg"]).map(imgUrl),
+          minPrice: p.minPrice,
+          maxPrice: p.maxPrice,
+        }));
+
+        if (alive) setRows(mapped);
+      } catch {
+        if (alive) setRows([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [category, currentId, currentSlug, limit]);
+
+  if (loading || rows.length === 0) return null;
+
   return (
-    <Link
-      href={href}
-      className="group block rounded-xl overflow-hidden border border-gray-200 hover:border-gray-300 transition-shadow hover:shadow-sm"
-    >
-      <div className="relative w-full aspect-[3/4] bg-gray-100">
-        <Image
-          src={imgUrl(cover)}
-          alt={displayName(p)}
-          fill
-          sizes="(max-width: 768px) 50vw, 300px"
-          className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-        />
+    <section className="py-10 sm:py-12 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="flex items-end justify-between mb-6 sm:mb-8">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">{title}</h2>
+            <p className="text-sm text-gray-500 mt-1">Similar items in {category}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
+          {rows.map((p) => (
+            <ProductCardClient key={p._id} p={p} />
+          ))}
+        </div>
       </div>
-      <div className="p-3">
-        <p className="text-sm text-gray-900 line-clamp-1">{displayName(p)}</p>
-        <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{p.category}</p>
-        <p className="text-sm font-semibold mt-1">
-          {p.minPrice === p.maxPrice ? inr(p.minPrice) : `${inr(p.minPrice)} – ${inr(p.maxPrice)}`}
-        </p>
-      </div>
-    </Link>
+    </section>
   );
 }
 
@@ -158,35 +229,18 @@ export default function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<Product | null>(null);
 
-  /* Related (Western) */
-  const [related, setRelated] = useState<Product[]>([]);
-
   /* Variant/UI state */
   const [color, setColor] = useState<string>(search.get("color") || "");
   const [size, setSize] = useState<string>(search.get("size") || "");
   const [imgIndex, setImgIndex] = useState(0);
   const [qty, setQty] = useState(1);
 
-  /* Wishlist/Cart/Order state */
+  /* Wishlist/Cart state */
   const [wishlistIds, setWishlistIds] = useState<Set<string>>(new Set());
   const [showCartToast, setShowCartToast] = useState(false);
   const [addedName, setAddedName] = useState("");
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [orderProcessing, setOrderProcessing] = useState(false);
-  const [orderSuccess, setOrderSuccess] = useState(false);
-  const [shipping, setShipping] = useState<ShippingInfo>({
-    name: "",
-    email: "",
-    phone: "",
-    address1: "",
-    address2: "",
-    city: "",
-    state: "",
-    pincode: "",
-    country: "India",
-  });
 
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("upi");
+  /* Show-all toggles */
   const [showAllColors, setShowAllColors] = useState(false);
   const [showAllSizes, setShowAllSizes] = useState(false);
 
@@ -198,7 +252,6 @@ export default function ProductDetailPage() {
       try {
         const slugParam = decodeURIComponent(String(slugParamRaw || "")).toLowerCase();
 
-        // Try API: /api/products/[slug]
         const one = await fetch(`/api/products/${slugParam}`, { cache: "no-store" });
         if (one.ok) {
           const p: Product = await one.json();
@@ -211,8 +264,7 @@ export default function ProductDetailPage() {
           return;
         }
 
-        // Fallback: load all and match locally
-        const res = await fetch("/api/products", { cache: "no-store" });
+        const res = await fetch(`/api/products`, { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to load products");
         const list: Product[] = await res.json();
 
@@ -241,38 +293,6 @@ export default function ProductDetailPage() {
       }
     })();
   }, [slugParamRaw]);
-
-  /* ========= Fetch Related Western Products ========= */
-  useEffect(() => {
-    (async () => {
-      try {
-        // Load all products (or if you have a category API, replace with that)
-        const res = await fetch("/api/products", { cache: "no-store" });
-        if (!res.ok) return;
-
-        const list: Product[] = await res.json();
-
-        // Normalize images
-        list.forEach((p: any) => {
-          p.images = (Array.isArray(p.images) && p.images.length ? p.images : ["/images/placeholder.jpg"]).map(imgUrl);
-        });
-
-        // Filter: only "western" category (case-insensitive), exclude current product
-        const westerns = list.filter((p) => norm(p.category).includes("western"));
-        const filtered = product ? westerns.filter((p) => p._id !== product._id) : westerns;
-
-        // Shuffle randomly and pick first N
-        const N = 8;
-        for (let i = filtered.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
-        }
-        setRelated(filtered.slice(0, N));
-      } catch (err) {
-        console.error("[Related] load error:", err);
-      }
-    })();
-  }, [product?._id]); // refetch when product changes
 
   /* ========= Full options ========= */
   const fullColors = useMemo(() => {
@@ -335,7 +355,7 @@ export default function ProductDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product, fullColors.length, fullSizes.length]);
 
-  /* ========= Variant helpers ========= */
+  /* ========= Variant & gallery ========= */
   const variant = useMemo(() => {
     if (!product) return null;
     return (
@@ -352,7 +372,6 @@ export default function ProductDetailPage() {
     return product.images;
   }, [product, variant, color]);
 
-  // Reset visible index when gallery changes
   const galleryKey = useMemo(() => gallery.join("|"), [gallery]);
   useEffect(() => setImgIndex(0), [galleryKey]);
 
@@ -487,6 +506,43 @@ export default function ProductDetailPage() {
     setTimeout(() => setShowCartToast(false), 2500);
   };
 
+  /* ========= Direct Checkout ========= */
+  const handleDirectCheckout = () => {
+    if (!product || !variant) {
+      alert("Please select available options.");
+      return;
+    }
+
+    if (qty > variant.stock) {
+      alert(`Only ${variant.stock} available.`);
+      return;
+    }
+
+    // Create direct order item
+    const directOrderItem = {
+      id: `${product._id}-${variant.size}-${variant.colour}-direct`,
+      productId: product._id,
+      variantId: variant._id,
+      name: displayName(product),
+      price: variant.price,
+      image: (gallery[0] || product.images[0]) ?? "/images/placeholder.jpg",
+      quantity: qty,
+      size: variant.size,
+      color: variant.colour,
+      productCode: product.product_code,
+      material: product.material,
+      category: product.category,
+      maxStock: variant.stock,
+      isDirectOrder: true
+    };
+
+    // Save to sessionStorage for checkout page
+    sessionStorage.setItem('directOrder', JSON.stringify([directOrderItem]));
+    
+    // Redirect to checkout with direct order flag
+    router.push('/checkout?type=direct');
+  };
+
   /* ========= Lightbox / Zoom ========= */
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -532,7 +588,6 @@ export default function ProductDetailPage() {
   const onMouseUp = () => setPanning(false);
   const onMouseLeave = () => setPanning(false);
 
-  // Basic touch support
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart: React.TouchEventHandler = (e) => {
     if (zoom === 1) return;
@@ -580,8 +635,7 @@ export default function ProductDetailPage() {
         </div>
       )}
 
-      {/* Product details */}
-      <div className="container mx-auto px-4 pb-6">
+      <div className="container mx-auto px-4 pb-10">
         <div className="grid md:grid-cols-2 gap-8">
           {/* LEFT: Gallery */}
           <div>
@@ -666,7 +720,6 @@ export default function ProductDetailPage() {
               </p>
             </div>
 
-            {/* Price + shipping note */}
             <div className="mt-4">
               <span className="text-3xl font-light text-gray-900">{inr(price)}</span>
               {product.minPrice !== product.maxPrice && (
@@ -791,87 +844,37 @@ export default function ProductDetailPage() {
               </button>
               <button
                 disabled={!variant || stock === 0}
-                onClick={() => setShowPaymentModal(true)}
+                onClick={handleDirectCheckout}
                 className={`flex-1 border py-3 px-6 rounded-lg transition-colors font-medium ${
                   !variant || stock === 0
                     ? "border-gray-300 text-gray-400 cursor-not-allowed"
                     : "border-black text-black hover:bg-black hover:text-white"
                 }`}
               >
-                Order Now
+                Buy Now
               </button>
             </div>
 
-            <div className="mt-4 text-xs text-gray-500">Secure online payment • Easy returns • Fast shipping in Kerala</div>
+            <div className="mt-4 text-xs text-gray-500">
+              <div className="flex items-center gap-1 mb-1">
+                <CreditCard className="w-3 h-3" />
+                <span>Secure payment via Razorpay</span>
+              </div>
+              <div>UPI • Cards • Net Banking • Wallets • Easy returns • Fast shipping in Kerala</div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ===== Western Wears — Random Picks ===== */}
-      {related.length > 0 && (
-        <div className="container mx-auto px-4 pb-12">
-          <div className="flex items-end justify-between mb-4">
-            <h2 className="text-xl md:text-2xl font-semibold text-gray-900">Explore More Western Wear</h2>
-            <span className="text-xs text-gray-500">{related.length} picks</span>
-          </div>
+      {/* Related products */}
+      <RelatedProductsClient
+        currentId={product._id}
+        currentSlug={product.slug || makeSlug(product)}
+        category={product.category}
+        limit={12}
+      />
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {related.map((p) => (
-              <ProductTile key={p._id} p={p} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Payment Modal */}
-      {showPaymentModal && product && variant && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <button onClick={() => setShowPaymentModal(false)} className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900">
-                  <ArrowLeft className="w-4 h-4" />
-                  Back to product
-                </button>
-                <button onClick={() => setShowPaymentModal(false)} className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {orderSuccess ? (
-                <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Check className="w-8 h-8 text-green-600" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Order Placed Successfully!</h3>
-                  <p className="text-gray-600 mb-1">We'll contact you at <b>{shipping.phone}</b> with delivery details.</p>
-                  <p className="text-sm text-gray-500">Redirecting to My Orders…</p>
-                </div>
-              ) : (
-                <OrderPane
-                  product={product}
-                  variant={variant}
-                  color={color}
-                  size={size}
-                  qty={qty}
-                  subtotal={subtotal}
-                  shippingFee={shippingFee}
-                  grandTotal={grandTotal}
-                  shipping={shipping}
-                  setShipping={setShipping}
-                  paymentMethod={paymentMethod}
-                  setPaymentMethod={setPaymentMethod}
-                  orderProcessing={orderProcessing}
-                  setOrderProcessing={setOrderProcessing}
-                  setOrderSuccess={setOrderSuccess}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Fullscreen Lightbox with Zoom */}
+      {/* Lightbox */}
       {lightboxOpen && (
         <div className="fixed inset-0 z-[60] bg-black/90 text-white flex flex-col" onWheel={onWheelZoom} role="dialog" aria-modal="true">
           {/* Top bar */}
@@ -879,14 +882,14 @@ export default function ProductDetailPage() {
             <div className="text-sm opacity-80">{displayName(product)} • {lightboxIndex + 1}/{gallery.length}</div>
             <div className="flex items-center gap-2">
               <button onClick={zoomOut} className="px-2 py-1 rounded hover:bg-white/10" aria-label="Zoom out">
-                <ZoomOut className="w-5 h-5" />
+                <Minus className="w-5 h-5" />
               </button>
               <span className="w-12 text-center text-xs">{Math.round(zoom * 100)}%</span>
               <button onClick={zoomIn} className="px-2 py-1 rounded hover:bg-white/10" aria-label="Zoom in">
-                <ZoomIn className="w-5 h-5" />
+                <Plus className="w-5 h-5" />
               </button>
               <button onClick={resetZoom} className="px-2 py-1 rounded hover:bg-white/10" aria-label="Reset zoom">
-                <RefreshCw className="w-5 h-5" />
+                <X className="w-5 h-5" />
               </button>
               <button onClick={closeLightbox} className="ml-2 px-2 py-1 rounded hover:bg-white/10" aria-label="Close">
                 <X className="w-5 h-5" />
@@ -895,22 +898,32 @@ export default function ProductDetailPage() {
           </div>
 
           {/* Image area */}
-          <LightboxCanvas
-            src={imgUrl(gallery[lightboxIndex])}
-            zoom={zoom}
-            setZoom={setZoom}
-            offset={offset}
-            setOffset={setOffset}
-            panning={panning}
-            setPanning={setPanning}
-            onMouseDown={onMouseDown}
+          <div
+            className="flex-1 relative overflow-hidden"
             onMouseMove={onMouseMove}
+            onMouseDown={onMouseDown}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseLeave}
             onDoubleClick={() => (zoom === 1 ? zoomIn() : resetZoom())}
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
-          />
+            style={{ cursor: zoom > 1 ? (panning ? "grabbing" : "grab") : "zoom-in" }}
+          >
+            <div className="absolute inset-0 flex items-center justify-center">
+              <img
+                src={imgUrl(gallery[lightboxIndex])}
+                alt="Zoom"
+                className="object-contain select-none"
+                draggable={false}
+                style={{
+                  maxHeight: "90vh",
+                  maxWidth: "92vw",
+                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                  transition: panning ? "none" : "transform 120ms ease-out",
+                }}
+              />
+            </div>
+          </div>
 
           {/* Thumbnails */}
           {gallery.length > 1 && (
@@ -926,7 +939,6 @@ export default function ProductDetailPage() {
                     className={`relative w-16 h-16 rounded overflow-hidden border ${i === lightboxIndex ? "border-white" : "border-white/20"}`}
                     aria-label={`Open image ${i + 1}`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={imgUrl(g)} alt={`thumb ${i + 1}`} className="w-full h-full object-cover" />
                   </button>
                 ))}
@@ -935,339 +947,6 @@ export default function ProductDetailPage() {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ===== Extracted pieces used in the modal/lightbox to keep the main component tidy ===== */
-function OrderPane(props: {
-  product: Product;
-  variant: Variant;
-  color: string;
-  size: string;
-  qty: number;
-  subtotal: number;
-  shippingFee: number;
-  grandTotal: number;
-  shipping: ShippingInfo;
-  setShipping: React.Dispatch<React.SetStateAction<ShippingInfo>>;
-  paymentMethod: PaymentMethod;
-  setPaymentMethod: React.Dispatch<React.SetStateAction<PaymentMethod>>;
-  orderProcessing: boolean;
-  setOrderProcessing: React.Dispatch<React.SetStateAction<boolean>>;
-  setOrderSuccess: React.Dispatch<React.SetStateAction<boolean>>;
-}) {
-  const {
-    product,
-    variant,
-    color,
-    size,
-    qty,
-    subtotal,
-    shippingFee,
-    grandTotal,
-    shipping,
-    setShipping,
-    paymentMethod,
-    setPaymentMethod,
-    orderProcessing,
-    setOrderProcessing,
-    setOrderSuccess,
-  } = props;
-
-  const inr = (n: number | string) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
-
-  const handlePay = async () => {
-    if (!RZP_KEY_ID) {
-      alert("Razorpay key is not configured.");
-      return;
-    }
-
-    // Validate shipping
-    const required: (keyof ShippingInfo)[] = [
-      "name",
-      "email",
-      "phone",
-      "address1",
-      "city",
-      "state",
-      "pincode",
-      "country",
-    ];
-    for (const k of required) {
-      const v = shipping[k];
-      if (!v || String(v).trim() === "") {
-        alert(`Please enter ${k.toUpperCase()}.`);
-        return;
-      }
-    }
-
-    setOrderProcessing(true);
-    try {
-      // 1) Create internal order (pending)
-      const orderBody = {
-        items: [
-          {
-            product_id: product._id,
-            variant_id: variant._id,
-            quantity: qty,
-            price: variant.price,
-            size: variant.size,
-            color: variant.colour,
-            product_code: product.product_code,
-          },
-        ],
-        customer_name: shipping.name,
-        customer_email: shipping.email,
-        customer_phone: shipping.phone,
-        shipping_address: `${shipping.address1}${shipping.address2 ? ", " + shipping.address2 : ""}, ${shipping.city}, ${shipping.state} - ${shipping.pincode}, ${shipping.country}`,
-        shipping: { ...shipping },
-        subtotal,
-        shipping_fee: shippingFee,
-        total_amount: grandTotal,
-        payment_method: paymentMethod,
-        status: "pending",
-      } as const;
-
-      const createOrderRes = await fetch("/api/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("token") || "" : ""}`,
-        },
-        body: JSON.stringify(orderBody),
-      });
-      if (!createOrderRes.ok) {
-        const err = await createOrderRes.json().catch(() => ({}));
-        throw new Error(err.message || `Order create failed (${createOrderRes.status})`);
-      }
-      const orderJson = await createOrderRes.json();
-      const internalOrderId = orderJson?.order_id || orderJson?._id || orderJson?.id;
-
-      // 2) Create Razorpay order in backend
-      const payRes = await fetch("/api/payments/razorpay/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: Math.round(grandTotal * 100), currency: "INR", receipt: String(internalOrderId) }),
-      });
-      if (!payRes.ok) {
-        const err = await payRes.json().catch(() => ({}));
-        throw new Error(err.message || `Payment create failed (${payRes.status})`);
-      }
-      const payJson = await payRes.json();
-      const rzpOrderId = payJson?.order_id || payJson?.id;
-
-      // 3) Open Razorpay
-      const ok = await loadRazorpay();
-      if (!ok || !window.Razorpay) {
-        throw new Error("Failed to load Razorpay SDK");
-      }
-
-      const rzp = new (window as any).Razorpay({
-        key: RZP_KEY_ID,
-        order_id: rzpOrderId,
-        amount: Math.round(grandTotal * 100),
-        currency: "INR",
-        name: "Nazmi Boutique",
-        description: product.product_name || `${product.material} ${product.category}`,
-        image: "/images/logo.png",
-        prefill: { name: shipping.name, email: shipping.email, contact: shipping.phone },
-        notes: { internal_order_id: String(internalOrderId), product_code: product.product_code || "" },
-        theme: { color: "#000000" },
-        handler: async (response: any) => {
-          try {
-            await fetch(`/api/orders/${internalOrderId}/paid`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                gateway: "razorpay",
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-          } catch {}
-          setOrderSuccess(true);
-          setTimeout(() => {
-            window.location.href = "/account/my-orders";
-          }, 1400);
-        },
-        modal: { ondismiss: () => { setOrderProcessing(false); } },
-        config: { display: {} },
-      });
-
-      rzp.open();
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message || "Payment failed. Please try again.");
-    } finally {
-      setOrderProcessing(false);
-    }
-  };
-
-  return (
-    <div className="grid md:grid-cols-2 gap-6">
-      {/* LEFT: shipping form */}
-      <div>
-        <h4 className="font-semibold text-gray-900 mb-3">Shipping Details</h4>
-        <div className="space-y-3">
-          <input type="text" placeholder="Full Name" value={shipping.name} onChange={(e) => props.setShipping((s) => ({ ...s, name: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          <input type="email" placeholder="Email Address" value={shipping.email} onChange={(e) => props.setShipping((s) => ({ ...s, email: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          <input type="tel" placeholder="Phone Number" value={shipping.phone} onChange={(e) => props.setShipping((s) => ({ ...s, phone: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          <input type="text" placeholder="Address Line 1" value={shipping.address1} onChange={(e) => props.setShipping((s) => ({ ...s, address1: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          <input type="text" placeholder="Address Line 2 (optional)" value={shipping.address2} onChange={(e) => props.setShipping((s) => ({ ...s, address2: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          <div className="grid grid-cols-2 gap-3">
-            <input type="text" placeholder="City" value={shipping.city} onChange={(e) => props.setShipping((s) => ({ ...s, city: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-            <input type="text" placeholder="State" value={shipping.state} onChange={(e) => props.setShipping((s) => ({ ...s, state: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <input type="text" placeholder="Pincode" value={shipping.pincode} onChange={(e) => props.setShipping((s) => ({ ...s, pincode: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-            <input type="text" placeholder="Country" value={shipping.country} onChange={(e) => props.setShipping((s) => ({ ...s, country: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
-          </div>
-        </div>
-      </div>
-
-      {/* RIGHT: summary + pay */}
-      <div>
-        <h4 className="font-semibold text-gray-900 mb-3">Order Summary</h4>
-        <div className="bg-gray-50 rounded-lg p-4 mb-4">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-12 h-12 bg-gray-200 rounded-lg overflow-hidden">
-              <Image
-                src={(product.images?.[0] || "/images/placeholder.jpg")}
-                alt={product.product_name || `${product.material} ${product.category}`}
-                width={48}
-                height={48}
-                className="object-cover w-full h-full"
-              />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">{product.product_name || `${product.material} ${product.category}`}</p>
-              <p className="text-xs text-gray-500">
-                {size && `Size: ${size}`} {size && color && " • "} {color && `Color: ${color}`}
-              </p>
-              <p className="text-xs text-gray-500">Qty: {qty}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-gray-900">{inr(subtotal)}</p>
-            </div>
-          </div>
-
-          <div className="border-t pt-3 space-y-1.5">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Subtotal</span>
-              <span className="font-medium text-gray-900">{inr(subtotal)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Shipping</span>
-              <span className={`font-medium ${shippingFee === 0 ? "text-green-700" : "text-gray-900"}`}>
-                {shippingFee === 0 ? "FREE" : inr(shippingFee)}
-              </span>
-            </div>
-            <div className="flex justify-between items-center pt-1 border-t">
-              <span className="text-sm text-gray-600">Total</span>
-              <span className="text-lg font-semibold text-gray-900">{inr(props.grandTotal)}</span>
-            </div>
-            {shippingFee > 0 && (
-              <p className="text-xs text-gray-500 pt-1">Add items worth {inr(SHIPPING_THRESHOLD - subtotal)} more to get <b>Free Shipping</b>.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Payment method */}
-        <div className="mb-4">
-          <p className="text-sm font-medium text-gray-900 mb-2">Payment Method</p>
-          <div className="grid grid-cols-3 gap-2">
-            {(["upi", "card", "netbanking"] as PaymentMethod[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => props.setPaymentMethod(m)}
-                className={`py-2 px-3 border rounded-lg text-sm capitalize ${
-                  props.paymentMethod === m ? "border-black bg-black text-white" : "border-gray-300 hover:border-gray-400"
-                }`}
-              >
-                {m === "card" ? "Debit/Credit Card" : m}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-500 mt-2">You'll complete payment securely via Razorpay.</p>
-        </div>
-
-        <button
-          onClick={handlePay}
-          disabled={
-            props.orderProcessing ||
-            !shipping.name ||
-            !shipping.email ||
-            !shipping.phone ||
-            !shipping.address1 ||
-            !shipping.city ||
-            !shipping.state ||
-            !shipping.pincode ||
-            !shipping.country
-          }
-          className="w-full bg-black text-white py-4 px-6 rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center gap-3 disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          {props.orderProcessing ? (
-            <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Processing...
-            </>
-          ) : (
-            <>
-              <CreditCard className="w-5 h-5" />
-              Pay Online ({props.paymentMethod === "card" ? "Card" : props.paymentMethod})
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LightboxCanvas(props: {
-  src: string;
-  zoom: number;
-  setZoom: React.Dispatch<React.SetStateAction<number>>;
-  offset: { x: number; y: number };
-  setOffset: React.Dispatch<React.SetStateAction<{ x: number; y: number }>>;
-  panning: boolean;
-  setPanning: React.Dispatch<React.SetStateAction<boolean>>;
-  onMouseDown: React.MouseEventHandler;
-  onMouseMove: React.MouseEventHandler;
-  onMouseUp: () => void;
-  onMouseLeave: () => void;
-  onDoubleClick: () => void;
-  onTouchStart: React.TouchEventHandler;
-  onTouchMove: React.TouchEventHandler;
-}) {
-  return (
-    <div
-      className="flex-1 relative overflow-hidden"
-      onMouseMove={props.onMouseMove}
-      onMouseDown={props.onMouseDown}
-      onMouseUp={props.onMouseUp}
-      onMouseLeave={props.onMouseLeave}
-      onDoubleClick={props.onDoubleClick}
-      onTouchStart={props.onTouchStart}
-      onTouchMove={props.onTouchMove}
-      style={{ cursor: props.zoom > 1 ? (props.panning ? "grabbing" : "grab") : "zoom-in" }}
-    >
-      <div className="absolute inset-0 flex items-center justify-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={props.src}
-          alt="Zoom"
-          className="object-contain select-none"
-          draggable={false}
-          style={{
-            maxHeight: "90vh",
-            maxWidth: "92vw",
-            transform: `translate(${props.offset.x}px, ${props.offset.y}px) scale(${props.zoom})`,
-            transition: props.panning ? "none" : "transform 120ms ease-out",
-          }}
-        />
-      </div>
     </div>
   );
 }
