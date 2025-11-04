@@ -1,54 +1,48 @@
-// components/blocks/slomo.tsx - FIXED VERSION
+// components/blocks/slomo.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 
-const SLIDES = [
-  { 
-    id: 1, 
-    src: "/images/poster1.png",
-    alt: "Summer Collection"
-  },
-  { 
-    id: 2, 
-    src: "/images/poster2.png",
-    alt: "New Arrivals"
-  },
-  { 
-    id: 3, 
-    src: "/images/poster3.png", 
-    alt: "Special Offers"
-  },
+type Slide = { id: number; src: string; alt: string };
+
+const SLIDES: Slide[] = [
+  { id: 1, src: "/images/poster1.png", alt: "Summer Collection" },
+  { id: 2, src: "/images/poster2.png", alt: "New Arrivals" },
+  { id: 3, src: "/images/poster3.png", alt: "Special Offers" },
 ];
 
-export default function Slomo() {
-  const [current, setCurrent] = useState(0);
+export default function Slomo({ className = "" }: { className?: string }) {
+  const [index, setIndex] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % SLIDES.length);
+    timerRef.current = setInterval(() => {
+      setIndex((i) => (i + 1) % SLIDES.length);
     }, 5000);
-    return () => clearInterval(timer);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
   return (
-    <div className="relative w-full h-full">
-      {SLIDES.map((slide, index) => (
+    <div className={`relative w-full h-full ${className}`}>
+      {SLIDES.map((slide, i) => (
         <div
           key={slide.id}
-          className={`absolute inset-0 transition-opacity duration-1000 ${
-            index === current ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 transition-opacity duration-700 ease-out ${
+            i === index ? "opacity-100" : "opacity-0"
           }`}
         >
           <Image
             src={slide.src}
             alt={slide.alt}
             fill
-            className="object-cover object-center"
-            priority={index === 0}
+            priority={i === 0}
             sizes="100vw"
             quality={85}
+            className="object-cover object-center"
           />
         </div>
       ))}

@@ -3,7 +3,10 @@
     /* === Path Aliases === */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@/context/*": ["./context/*"],
+      "@/components/*": ["./components/*"],
+      "@/utils/*": ["./utils/*"]
     },
 
     /* === Module & Target === */
@@ -37,6 +40,8 @@
   "include": [
     "app/**/*",
     "components/**/*",
+    "context/**/*",
+    "utils/**/*",
     "**/*.ts",
     "**/*.tsx",
     "next-env.d.ts",

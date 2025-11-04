@@ -107,6 +107,7 @@ async function fetchNewArrivals(): Promise<Product[]> {
   }
 }
 
+
 /* ---------- Helpers ---------- */
 const isEthnicOrWestern = (c?: string) => {
   const s = (c || "").toLowerCase();

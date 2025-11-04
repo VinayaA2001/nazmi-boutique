@@ -1,9 +1,5 @@
-import React from 'react'
+import ForgotPasswordClient from './ForgotPasswordClient';
 
-const ForgotPassword = () => {
-  return (
-    <div>ForgotPassword</div>
-  )
+export default function ForgotPasswordPage() {
+  return <ForgotPasswordClient />;
 }
-
-export default ForgotPassword

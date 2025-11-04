@@ -30,6 +30,13 @@ interface ShippingInfo {
   country: string;
 }
 
+// Declare Razorpay type
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_RZFeCq3NZLg9Rz";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
 
@@ -111,8 +118,8 @@ function CheckoutContent() {
   useEffect(() => {
     const checkBackendStatus = async () => {
       try {
-        console.log('🔍 Checking backend status at:', API_BASE);
-        const response = await fetch(`${API_BASE}/`, {
+        console.log('🔍 Checking backend status...');
+        const response = await fetch(`${API_BASE}/api/health`, {
           method: 'GET',
           headers: { "Content-Type": "application/json" },
         });
@@ -182,6 +189,21 @@ function CheckoutContent() {
         return false;
       }
     }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(shipping.email)) {
+      alert('Please enter a valid email address');
+      return false;
+    }
+    
+    // Validate phone number (Indian format)
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(shipping.phone.replace(/\D/g, ''))) {
+      alert('Please enter a valid 10-digit phone number');
+      return false;
+    }
+    
     return true;
   };
 
@@ -192,7 +214,7 @@ function CheckoutContent() {
     }
   };
 
-  // ✅ UPDATED: Initialize Razorpay payment with better error handling
+  // ✅ UPDATED: Initialize Razorpay payment with PROPER UPI flow
   const initiateRazorpayPayment = async () => {
     if (!selectedPaymentMethod) {
       alert('Please select a payment method');
@@ -208,9 +230,8 @@ function CheckoutContent() {
 
     try {
       console.log('🚀 Starting payment process...');
-      console.log('📞 Backend URL:', API_BASE);
 
-      // 1. Create order in backend
+      // 1. Create order in backend via proxy API
       const orderData = {
         customer_name: shipping.name,
         customer_email: shipping.email,
@@ -234,32 +255,32 @@ function CheckoutContent() {
 
       console.log('📦 Creating order with data:', orderData);
 
-      // Create order in your backend with timeout
-      const orderResponse = await fetch(`${API_BASE}/api/orders`, {
+      // Use Next.js API route as proxy
+      const orderResponse = await fetch('/api/orders', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orderData),
       });
 
       if (!orderResponse.ok) {
-        const errorText = await orderResponse.text();
-        console.error('❌ Order creation failed:', {
-          status: orderResponse.status,
-          statusText: orderResponse.statusText,
-          error: errorText
-        });
-        throw new Error(`Failed to create order: ${orderResponse.status} - ${orderResponse.statusText}`);
+        const errorData = await orderResponse.json();
+        console.error('❌ Order creation failed:', errorData);
+        throw new Error(errorData.error || `Failed to create order: ${orderResponse.status}`);
       }
 
       const orderResult = await orderResponse.json();
-      const orderId = orderResult.order_id || orderResult._id;
+      const orderId = orderResult.order_id;
+
+      if (!orderId) {
+        throw new Error('No order ID returned from server');
+      }
 
       console.log('✅ Order created successfully:', orderId);
 
-      // 2. Create Razorpay order
+      // 2. Create Razorpay order via proxy API
       console.log('💰 Creating Razorpay order for order ID:', orderId);
       
-      const razorpayResponse = await fetch(`${API_BASE}/api/payments/razorpay/create-order`, {
+      const razorpayResponse = await fetch('/api/payments/razorpay/create-order', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -268,23 +289,15 @@ function CheckoutContent() {
       });
 
       if (!razorpayResponse.ok) {
-        const errorText = await razorpayResponse.text();
-        console.error('❌ Razorpay order creation failed:', {
-          status: razorpayResponse.status,
-          statusText: razorpayResponse.statusText,
-          error: errorText
-        });
-        throw new Error(`Payment setup failed: ${razorpayResponse.status} - ${razorpayResponse.statusText}`);
+        const errorData = await razorpayResponse.json();
+        console.error('❌ Razorpay order creation failed:', errorData);
+        throw new Error(errorData.error || `Payment setup failed: ${razorpayResponse.status}`);
       }
 
       const razorpayOrder = await razorpayResponse.json();
       console.log('✅ Razorpay order created:', razorpayOrder);
 
       // ✅ VALIDATION CHECKS
-      if (razorpayOrder.currency !== "INR") {
-        throw new Error("Currency mismatch. Expected INR, got: " + razorpayOrder.currency);
-      }
-
       if (!razorpayOrder.razorpay_order_id) {
         throw new Error("Invalid Razorpay order response - missing order ID");
       }
@@ -300,11 +313,11 @@ function CheckoutContent() {
         throw new Error("Failed to load payment gateway. Please check your internet connection.");
       }
 
-      // 4. Razorpay configuration
+      // 4. Razorpay configuration with PROPER UPI flow
       const options: any = {
         key: RZP_KEY_ID,
         amount: razorpayOrder.amount,
-        currency: razorpayOrder.currency,
+        currency: "INR",
         name: "Nazmi Boutique",
         description: `Order for ${cartItems.length} item(s)`,
         order_id: razorpayOrder.razorpay_order_id,
@@ -312,22 +325,25 @@ function CheckoutContent() {
           try {
             console.log('💳 Payment response received:', response);
             
-            if (!response.razorpay_payment_id || !response.razorpay_order_id) {
+            if (!response.razorpay_payment_id || !response.razorpay_order_id || !response.razorpay_signature) {
               throw new Error("Invalid payment response from Razorpay");
             }
 
-            // Verify payment
+            // Verify payment via proxy API
             console.log('🔐 Verifying payment...');
-            const verifyResponse = await fetch(`${API_BASE}/api/payments/razorpay/verify`, {
+            const verifyResponse = await fetch('/api/payments/razorpay/verify', {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                payment_id: response.razorpay_payment_id,
+                razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_order_id: response.razorpay_order_id,
+                razorpay_signature: response.razorpay_signature,
               }),
             });
 
-            if (verifyResponse.ok) {
+            const verifyResult = await verifyResponse.json();
+
+            if (verifyResponse.ok && verifyResult.success) {
               console.log('✅ Payment verified successfully!');
               
               // Payment successful - clear cart and redirect to success page
@@ -340,13 +356,12 @@ function CheckoutContent() {
               
               router.push('/order-success');
             } else {
-              const errorText = await verifyResponse.text();
-              console.error('❌ Payment verification failed:', errorText);
-              throw new Error("Payment verification failed. Please contact support.");
+              console.error('❌ Payment verification failed:', verifyResult);
+              throw new Error(verifyResult.error || "Payment verification failed. Please contact support.");
             }
-          } catch (error) {
+          } catch (error: any) {
             console.error("❌ Payment verification error:", error);
-            alert("Payment verification failed. Please contact support with your order details.");
+            alert(`Payment verification failed: ${error.message}`);
             setLoading(false);
           }
         },
@@ -369,22 +384,75 @@ function CheckoutContent() {
             console.log("Payment modal closed by user");
             setLoading(false);
           },
-        }
+        },
+        retry: {
+          enabled: false, // Disable retry to avoid pay later options
+        },
+        timeout: 900,
       };
 
-      // Payment method configuration
+      // ✅ CRITICAL FIX: Force direct UPI app selection (like Flipkart/Myntra)
       if (selectedPaymentMethod === 'upi') {
-        options.method = 'upi';
-      } else if (selectedPaymentMethod === 'card') {
-        options.method = 'card';
-      } else if (selectedPaymentMethod === 'netbanking') {
-        options.method = 'netbanking';
-      } else if (selectedPaymentMethod === 'wallet') {
-        options.method = 'wallet';
+        // Force UPI-only mode with direct app selection
+        options.method = {
+          upi: true,
+          card: false,
+          netbanking: false,
+          wallet: false,
+        };
+        
+        // UPI-specific configuration for direct app flow
+        options._ = {
+          integration: 'custom',
+          method: 'upi'
+        };
+        
+        // Disable all pay later options
+        options.notes = {
+          ...options.notes,
+          disable_paylater: 'true',
+          payment_flow: 'upi_collect'
+        };
+        
+        console.log('🔧 UPI Payment Configuration:', {
+          method: options.method,
+          notes: options.notes
+        });
       }
 
-      console.log('🎯 Opening Razorpay checkout...');
+      console.log('🎯 Opening Razorpay checkout with options:', options);
       const rzp = new window.Razorpay(options);
+      
+      // ✅ FIXED: Proper payment failure handling
+      rzp.on('payment.failed', function (response: any) {
+        console.error('❌ Payment failed - Full response:', response);
+        
+        let errorMessage = 'Payment failed. Please try again.';
+        
+        if (response.error) {
+          console.error('Payment error details:', {
+            code: response.error.code,
+            description: response.error.description,
+            source: response.error.source,
+            step: response.error.step,
+            reason: response.error.reason
+          });
+
+          if (response.error.description) {
+            errorMessage = response.error.description;
+          } else if (response.error.code === 'BAD_REQUEST_ERROR') {
+            errorMessage = 'Invalid payment details. Please check and try again.';
+          } else if (response.error.code === 'PAYMENT_DECLINED') {
+            errorMessage = 'Payment was declined by your bank.';
+          } else if (response.error.code === 'UPI_NOT_AVAILABLE') {
+            errorMessage = 'UPI service temporarily unavailable. Please try another payment method.';
+          }
+        }
+        
+        alert(`Payment Failed: ${errorMessage}`);
+        setLoading(false);
+      });
+
       rzp.open();
 
     } catch (error: any) {
@@ -465,7 +533,7 @@ function CheckoutContent() {
 
         <div className="bg-gray-50 p-4 rounded-lg">
           <p className="text-sm text-gray-700 text-center">
-            {selectedPaymentMethod === 'upi' && '💡 You will be redirected to UPI payment'}
+            {selectedPaymentMethod === 'upi' && '📱 You will be redirected to UPI apps like Google Pay, PhonePe, Paytm'}
             {selectedPaymentMethod === 'card' && '💳 Enter your card details in the secure payment window'}
             {selectedPaymentMethod === 'netbanking' && '🏦 You will be redirected to your bank for payment'}
             {selectedPaymentMethod === 'wallet' && '📱 You will be redirected to your wallet app'}

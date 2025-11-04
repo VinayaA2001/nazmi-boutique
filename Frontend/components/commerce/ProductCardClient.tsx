@@ -25,7 +25,12 @@ function categoryHref(p: CardProduct) {
   return `${base}/${encodeURIComponent(slugOrId)}`;
 }
 
-export default function ProductCardClient({ p }: { p: CardProduct }) {
+interface ProductCardClientProps {
+  p: CardProduct;
+  compact?: boolean;
+}
+
+export default function ProductCardClient({ p, compact = false }: ProductCardClientProps) {
   const [wishIds, setWishIds] = useState<Set<string>>(new Set());
   const inWishlist = useMemo(() => wishIds.has(p._id), [wishIds, p._id]);
 
@@ -69,6 +74,44 @@ export default function ProductCardClient({ p }: { p: CardProduct }) {
       : inr(p.minPrice || p.maxPrice);
 
   const img = p.images?.[0] || "/images/placeholder.jpg";
+
+  if (compact) {
+    return (
+      <div className="group rounded-lg border border-gray-150 overflow-hidden bg-white hover:shadow-sm transition-all">
+        <div className="relative aspect-[3/4]">
+          <Image
+            src={img}
+            alt={p.name}
+            fill
+            className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            sizes="(max-width:768px) 50vw, (max-width:1280px) 25vw, 25vw"
+          />
+          <button
+            onClick={toggleWishlist}
+            className={`absolute top-1 right-1 w-6 h-6 rounded-full border flex items-center justify-center bg-white/90 backdrop-blur ${
+              inWishlist ? "border-red-400 text-red-500" : "border-gray-200 text-gray-700"
+            }`}
+            aria-label={inWishlist ? "Remove from wishlist" : "Add to wishlist"}
+          >
+            <Heart className={`w-3 h-3 ${inWishlist ? "fill-current" : ""}`} />
+          </button>
+        </div>
+
+        <div className="p-1.5">
+          <Link href={categoryHref(p)} className="block">
+            <h3 className="text-[10px] font-medium text-gray-900 line-clamp-2 leading-tight min-h-[2rem]">
+              {p.name}
+            </h3>
+            {price && (
+              <p className="mt-0.5 text-[10px] text-amber-700 font-semibold leading-tight">
+                {price}
+              </p>
+            )}
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="group rounded-2xl border border-gray-200 overflow-hidden bg-white hover:shadow-md transition-all">

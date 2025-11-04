@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Heart, ShoppingCart, User, Search, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
 
 declare global {
   interface WindowEventMap {
@@ -22,32 +24,30 @@ interface NavItem {
 
 export default function Header() {
   const [wishlistCount, setWishlistCount] = useState(0);
-  const [cartCount, setCartCount] = useState(0);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isClient, setIsClient] = useState(false);
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
 
   const pathname = usePathname();
   const router = useRouter();
+  const { user, isAuthenticated, logout } = useAuth();
+  const { cartItems, getCartItemsCount } = useCart();
 
-  // ⬇️ hold the trigger+popover container to detect outside clicks
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setIsClient(true), []);
+
+  const cartCount = getCartItemsCount();
 
   const loadCounts = useCallback(() => {
     if (!isClient) return;
     try {
       const wishlist = JSON.parse(localStorage.getItem("wishlist") || "[]");
-      const cart = JSON.parse(localStorage.getItem("cart") || "[]");
       setWishlistCount(Array.isArray(wishlist) ? wishlist.length : 0);
-      setCartCount(
-        Array.isArray(cart)
-          ? cart.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
-          : 0
-      );
     } catch (error) {
       console.error("Error loading counts:", error);
     }
@@ -61,14 +61,12 @@ export default function Header() {
 
     window.addEventListener("storage", handleStorageUpdate);
     window.addEventListener("wishlist-updated", handleStorageUpdate as EventListener);
-    window.addEventListener("cart-updated", handleStorageUpdate as EventListener);
     window.addEventListener("scroll", handleScroll, { passive: true });
 
     const pollInterval = setInterval(loadCounts, 2000);
     return () => {
       window.removeEventListener("storage", handleStorageUpdate);
       window.removeEventListener("wishlist-updated", handleStorageUpdate as EventListener);
-      window.removeEventListener("cart-updated", handleStorageUpdate as EventListener);
       window.removeEventListener("scroll", handleScroll);
       clearInterval(pollInterval);
     };
@@ -76,16 +74,26 @@ export default function Header() {
 
   /** Close search on outside click or Escape */
   useEffect(() => {
-    if (!searchOpen) return;
+    if (!searchOpen && !accountDropdownOpen) return;
 
     const onDown = (e: MouseEvent | TouchEvent) => {
-      const el = searchWrapRef.current;
-      if (!el) return;
+      const searchEl = searchWrapRef.current;
+      const accountEl = accountDropdownRef.current;
       const target = e.target as Node | null;
-      if (target && !el.contains(target)) setSearchOpen(false);
+      
+      if (searchOpen && searchEl && target && !searchEl.contains(target)) {
+        setSearchOpen(false);
+      }
+      
+      if (accountDropdownOpen && accountEl && target && !accountEl.contains(target)) {
+        setAccountDropdownOpen(false);
+      }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSearchOpen(false);
+      if (e.key === "Escape") {
+        setSearchOpen(false);
+        setAccountDropdownOpen(false);
+      }
     };
 
     document.addEventListener("mousedown", onDown);
@@ -96,11 +104,12 @@ export default function Header() {
       document.removeEventListener("touchstart", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [searchOpen]);
+  }, [searchOpen, accountDropdownOpen]);
 
   /** Also close popover on route changes */
   useEffect(() => {
     setSearchOpen(false);
+    setAccountDropdownOpen(false);
   }, [pathname]);
 
   /** Navigate to search page and close popover */
@@ -122,6 +131,26 @@ export default function Header() {
   const closeAllMenus = () => {
     setMobileMenuOpen(false);
     setSearchOpen(false);
+    setAccountDropdownOpen(false);
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    logout();
+    closeAllMenus();
+    router.push("/");
+  };
+
+  // Toggle account dropdown
+  const toggleAccountDropdown = () => {
+    setAccountDropdownOpen(!accountDropdownOpen);
+    setSearchOpen(false);
+  };
+
+  // Navigate to account page
+  const goToAccount = () => {
+    router.push("/account");
+    closeAllMenus();
   };
 
   const desktopNavItems: NavItem[] = [
@@ -269,7 +298,7 @@ export default function Header() {
                 </button>
 
                 {searchOpen && (
-                  <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 animate-in slide-in-from-top-5 duration-300 z-50">
+                  <div className="fixed top-20 left-4 right-4 sm:left-1/2 sm:right-auto sm:transform sm:-translate-x-1/2 w-auto sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 animate-in slide-in-from-top-5 duration-300 z-50">
                     <form onSubmit={handleSearch} className="space-y-4">
                       <div className="relative">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -277,7 +306,7 @@ export default function Header() {
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search traditional wear, western outfits, festive collections..."
+                          placeholder="Search traditional wear, western outfits..."
                           className="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-gray-50 text-gray-900 placeholder-gray-500 transition-all duration-300"
                           autoFocus
                         />
@@ -295,15 +324,7 @@ export default function Header() {
                         Trending Searches:
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {[
-                          "Sharara",
-                          "Jeans",
-                          "Churidhars",
-                          "Co-ords sets",
-                          "Tops",
-                          "Salwar sets",
-                          "Kafftan tops",
-                        ].map((term) => (
+                        {quickSearchTerms.map((term) => (
                           <button
                             key={term}
                             type="button"
@@ -319,19 +340,67 @@ export default function Header() {
                 )}
               </div>
 
-              {/* Account */}
-              <button
-                type="button"
-                className="relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 group rounded-2xl hover:bg-amber-50 hidden sm:block"
-                onClick={() => {
-                  closeAllMenus();
-                  router.push("/account");
-                }}
-                aria-label="My account"
-              >
-                <User className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
-                <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
-              </button>
+              {/* Account - FIXED: Click goes to account page, hover shows dropdown */}
+              <div className="relative" ref={accountDropdownRef}>
+                <button
+                  onClick={goToAccount} // CHANGED: Now goes directly to account page
+                  onMouseEnter={() => setAccountDropdownOpen(true)} // ADDED: Show dropdown on hover
+                  onMouseLeave={() => setAccountDropdownOpen(false)} // ADDED: Hide dropdown on mouse leave
+                  className="relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50 hidden sm:block"
+                  aria-label="My account"
+                >
+                  <User className="w-5 h-5 transition-transform duration-300" />
+                  <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
+                </button>
+                
+                {/* Account dropdown - Shows on hover */}
+                {accountDropdownOpen && (
+                  <div 
+                    className="absolute top-14 right-0 w-48 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50"
+                    onMouseEnter={() => setAccountDropdownOpen(true)} // ADDED: Keep dropdown open when hovering over it
+                    onMouseLeave={() => setAccountDropdownOpen(false)} // ADDED: Close dropdown when mouse leaves
+                  >
+                    {isAuthenticated ? (
+                      <>
+                        <div className="px-4 py-2 border-b border-gray-100">
+                          <p className="text-sm font-semibold text-gray-900">{user?.firstName} {user?.lastName}</p>
+                          <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                        </div>
+                        <Link
+                          href="/account"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                          onClick={closeAllMenus}
+                        >
+                          My Account
+                        </Link>
+                        <button
+                          onClick={handleLogout}
+                          className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                        >
+                          Sign Out
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <Link
+                          href="/login"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                          onClick={closeAllMenus}
+                        >
+                          Sign In
+                        </Link>
+                        <Link
+                          href="/register"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                          onClick={closeAllMenus}
+                        >
+                          Create Account
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Wishlist */}
               <Link
@@ -374,15 +443,17 @@ export default function Header() {
                 onClick={() => {
                   setMobileMenuOpen((v) => !v);
                   setSearchOpen(false);
+                  setAccountDropdownOpen(false);
                 }}
-                className="lg:hidden p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50"
+                className="lg:hidden relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50 group"
                 aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               >
-                {mobileMenuOpen ? (
-                  <X className="w-6 h-6 transition-transform duration-300 hover:scale-110" />
-                ) : (
-                  <Menu className="w-6 h-6 transition-transform duration-300 hover:scale-110" />
-                )}
+                <div className="w-6 h-6 flex flex-col justify-center items-center gap-1">
+                  <div className={`w-6 h-0.5 bg-gray-700 rounded-full transition-all duration-300 ${mobileMenuOpen ? 'rotate-45 translate-y-1.5' : ''}`} />
+                  <div className={`w-6 h-0.5 bg-gray-700 rounded-full transition-all duration-300 ${mobileMenuOpen ? 'opacity-0' : ''}`} />
+                  <div className={`w-6 h-0.5 bg-gray-700 rounded-full transition-all duration-300 ${mobileMenuOpen ? '-rotate-45 -translate-y-1.5' : ''}`} />
+                </div>
+                <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
               </button>
             </div>
           </div>
@@ -390,7 +461,7 @@ export default function Header() {
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-2xl animate-in slide-in-from-top duration-300">
+          <div className="lg:hidden fixed top-[var(--header-offset)] left-0 right-0 bottom-0 bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-2xl animate-in slide-in-from-top duration-300 z-40 overflow-y-auto">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-2">
               {mobileNavItems.map(({ href, label, icon, highlight }) => (
                 <Link
@@ -428,6 +499,36 @@ export default function Header() {
                   )}
                 </Link>
               ))}
+              
+              {/* Auth section in mobile menu */}
+              {isAuthenticated ? (
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center py-4 px-6 text-lg text-red-600 hover:bg-red-50 transition-colors rounded-2xl text-left"
+                >
+                  <span className="text-2xl mr-4">🚪</span>
+                  <span>Sign Out</span>
+                </button>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="flex items-center py-4 px-6 text-lg text-gray-600 hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-2xl"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <span className="text-2xl mr-4">🔑</span>
+                    <span>Sign In</span>
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="flex items-center py-4 px-6 text-lg text-gray-600 hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-2xl"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <span className="text-2xl mr-4">👤</span>
+                    <span>Create Account</span>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}

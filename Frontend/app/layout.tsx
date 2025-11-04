@@ -8,6 +8,8 @@ import type { Metadata, Viewport } from "next";
 import { Poppins, Playfair_Display } from "next/font/google";
 import type { ReactNode } from "react";
 import Script from "next/script";
+import { AuthProvider } from "@/context/AuthContext";
+import { CartProvider } from "@/context/CartContext"; 
 
 /* ---- GOOGLE FONTS ---- */
 const poppins = Poppins({
@@ -41,7 +43,7 @@ export const metadata: Metadata = {
     template: "%s | Nazmi Boutique Koduvally Kozhikode",
   },
   description:
-    "Nazmi Boutique in Koduvally, Kozhikode — Kerala’s premium women’s fashion destination offering elegant traditional wear, western collections, smart TV prizes on purchases above ₹2000, and free delivery within 3 km radius. Explore ethnic kurtis, dresses, and festive wear crafted with perfection.",
+    "Nazmi Boutique in Koduvally, Kozhikode — Kerala's premium women's fashion destination offering elegant traditional wear, western collections, smart TV prizes on purchases above ₹2000, and free delivery within 3 km radius. Explore ethnic kurtis, dresses, and festive wear crafted with perfection.",
   keywords: [
     "Nazmi Boutique",
     "Nazmi Boutique Koduvally",
@@ -188,13 +190,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
 
       <body className="min-h-screen flex flex-col bg-white text-gray-900 font-sans antialiased">
-        <Header />
-        <main className="flex-1 w-full">{children}</main>
-        <Footer />
-        <WhatsAppButton
-          phone="+919995947709"
-          preset="Hello Nazmi Boutique! I'm interested in your collections and offers above ₹2000."
-        />
+        <AuthProvider>
+          <CartProvider>
+            <Header />
+            <main className="flex-1 w-full">{children}</main>
+            <Footer />
+            <WhatsAppButton
+              phone="+919995947709"
+              preset="Hello Nazmi Boutique! I'm interested in your collections and offers"
+            />
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );
