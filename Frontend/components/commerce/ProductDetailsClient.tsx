@@ -36,32 +36,6 @@ type Product = {
   specs?: Record<string, string>;
 };
 
-// Cloudinary URL optimization function
-const optimizeCloudinaryUrl = (url: string, width?: number, height?: number) => {
-  if (!url) return "/images/placeholder.png";
-  
-  // If it's already a local image, return as-is
-  if (url.startsWith('/')) return url;
-  
-  // If it's a Cloudinary URL, optimize it
-  if (url.includes('cloudinary.com') && url.includes('/upload/')) {
-    // Check if it already has transformations
-    if (url.includes('/c_') || url.includes('/w_') || url.includes('/q_')) {
-      return url;
-    }
-    // Add optimizations for Cloudinary URLs
-    const dimensions = width && height ? `w_${width},h_${height},` : '';
-    return url.replace('/upload/', `/upload/${dimensions}c_fill,q_auto,f_auto/`);
-  }
-  
-  // If it's an external URL but not Cloudinary, return as-is
-  if (url.startsWith('http')) {
-    return url;
-  }
-  
-  return "/images/placeholder.png";
-};
-
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
 const same = (a?: string, b?: string) => norm(a) === norm(b);
 const currency = (n?: number) => (typeof n === "number" ? `₹${n.toLocaleString("en-IN")}` : "");
@@ -71,7 +45,7 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
 
 export default function ProductDetailsClient({ product }: { product: Product }) {
   const title = product.product_name || product.name || "Untitled";
-  const baseImages = (product.images ?? []).map(img => optimizeCloudinaryUrl(img, 800, 1000));
+  const baseImages = product.images ?? [];
   const variants = Array.isArray(product.variants) ? product.variants : [];
 
   /** Derive full color/size options (fallback to variants if lists are missing) */
@@ -102,7 +76,6 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
   const [qty, setQty] = useState(1);
   const [wish, setWish] = useState(false);
   const [mainIndex, setMainIndex] = useState(0);
-  const [imageLoading, setImageLoading] = useState(true);
 
   /** Lightbox + Zoom (Option D) */
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -139,7 +112,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
     if (!product.colorImages) return undefined;
     const out: Record<string, string[]> = {};
     for (const [k, arr] of Object.entries(product.colorImages)) {
-      out[norm(k)] = Array.isArray(arr) ? arr.map(img => optimizeCloudinaryUrl(img, 800, 1000)) : [];
+      out[norm(k)] = Array.isArray(arr) ? arr : [];
     }
     return out;
   }, [product.colorImages]);
@@ -172,12 +145,10 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
   /** Gallery (variant images > colorImages[color] > baseImages) */
   const gallery = useMemo(() => {
     const variantWithImgs = matchingVariants.find((v) => Array.isArray(v.images) && v.images.length);
-    if (variantWithImgs?.images?.length) {
-      return variantWithImgs.images.map(img => optimizeCloudinaryUrl(img, 800, 1000));
-    }
+    if (variantWithImgs?.images?.length) return variantWithImgs.images;
     const ck = norm(activeColor);
     if (ck && colorImgMap?.[ck]?.length) return colorImgMap[ck];
-    return baseImages.length ? baseImages : ["/images/placeholder.png"];
+    return baseImages.length ? baseImages : ["/images/placeholder.jpg"];
   }, [matchingVariants, activeColor, colorImgMap, baseImages]);
 
   useEffect(() => setMainIndex(0), [gallery.join("|")]);
@@ -220,21 +191,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
       if (typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("cart-updated"));
       }
-      
-      // Show success feedback
-      const button = document.querySelector('[data-cart-button]') as HTMLElement;
-      if (button) {
-        const originalText = button.innerHTML;
-        button.innerHTML = '<Check className="w-4 h-4" /> Added!';
-        button.classList.add('bg-green-600', 'hover:bg-green-700');
-        setTimeout(() => {
-          button.innerHTML = originalText;
-          button.classList.remove('bg-green-600', 'hover:bg-green-700');
-        }, 2000);
-      }
-    } catch (error) {
-      console.error('Failed to add to cart:', error);
-    }
+    } catch {}
   };
 
   const toggleWishlist = () => {
@@ -357,10 +314,6 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
     }
   };
 
-  const handleImageLoad = () => {
-    setImageLoading(false);
-  };
-
   /** Render */
   return (
     <>
@@ -373,19 +326,13 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
             title="Click to view large"
           >
             <Image
-              src={gallery[mainIndex] || "/images/placeholder.png"}
+              src={gallery[mainIndex] || "/images/placeholder.jpg"}
               alt={title}
               fill
-              className={`object-cover transition-opacity duration-300 ${
-                imageLoading ? 'opacity-0' : 'opacity-100'
-              }`}
+              className="object-cover"
               sizes="(max-width:1024px) 100vw, 50vw"
               priority
-              onLoad={handleImageLoad}
             />
-            {imageLoading && (
-              <div className="absolute inset-0 bg-gray-200 animate-pulse" />
-            )}
           </div>
 
           {gallery.length > 1 && (
@@ -401,13 +348,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
                   aria-label={`Preview ${i + 1}`}
                   title="Double-click to open"
                 >
-                  <Image 
-                    src={img} 
-                    alt={`${title} ${i + 1}`} 
-                    fill 
-                    className="object-cover" 
-                    sizes="(max-width: 1024px) 20vw, 10vw"
-                  />
+                  <Image src={img} alt={`${title} ${i + 1}`} fill className="object-cover" />
                 </button>
               ))}
             </div>
@@ -420,15 +361,13 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{title}</h1>
             <button
               onClick={toggleWishlist}
-              className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all ${
-                wish 
-                  ? "border-red-400 text-red-500 hover:bg-red-50" 
-                  : "border-gray-300 text-gray-700 hover:text-red-500 hover:border-red-300"
+              className={`w-10 h-10 rounded-full border flex items-center justify-center ${
+                wish ? "border-red-400 text-red-500" : "border-gray-300 text-gray-700 hover:text-red-500"
               }`}
               aria-label="Wishlist"
               title={wish ? "Remove from Wishlist" : "Add to Wishlist"}
             >
-              <Heart className={`w-5 h-5 transition-all ${wish ? "fill-current scale-110" : "scale-100"}`} />
+              <Heart className={`w-5 h-5 ${wish ? "fill-current" : ""}`} />
             </button>
           </div>
 
@@ -494,28 +433,21 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
           ) : null}
 
           {/* Quantity + Actions */}
-          <div className="mt-6 flex items-center gap-3 flex-wrap">
+          <div className="mt-6 flex items-center gap-3">
             <div className="inline-flex items-center border border-gray-300 rounded-xl overflow-hidden">
-              <button 
-                className="px-3 py-2 hover:bg-gray-50 transition-colors" 
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-              >
+              <button className="px-3 py-2 hover:bg-gray-50" onClick={() => setQty((q) => Math.max(1, q - 1))}>
                 <Minus className="w-4 h-4" />
               </button>
-              <span className="px-4 py-2 text-sm font-semibold min-w-[3ch] text-center">{qty}</span>
-              <button 
-                className="px-3 py-2 hover:bg-gray-50 transition-colors" 
-                onClick={() => setQty((q) => q + 1)}
-              >
+              <span className="px-4 py-2 text-sm font-semibold">{qty}</span>
+              <button className="px-3 py-2 hover:bg-gray-50" onClick={() => setQty((q) => q + 1)}>
                 <Plus className="w-4 h-4" />
               </button>
             </div>
 
             <button
-              data-cart-button
               disabled={(computedStock ?? 0) <= 0}
               onClick={addToCart}
-              className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold px-5 py-2.5 rounded-xl shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold px-5 py-2.5 rounded-xl shadow-sm disabled:opacity-50"
             >
               <ShoppingCart className="w-4 h-4" />
               Add to Cart
@@ -524,9 +456,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
             <button
               onClick={toggleWishlist}
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border transition ${
-                wish 
-                  ? "border-red-300 bg-red-50 text-red-600 hover:bg-red-100" 
-                  : "border-gray-300 hover:border-gray-900 hover:bg-gray-50"
+                wish ? "border-red-300 bg-red-50 text-red-600" : "border-gray-300 hover:border-gray-900"
               }`}
             >
               <Heart className={`w-4 h-4 ${wish ? "fill-red-500 text-red-500" : ""}`} />
@@ -619,13 +549,13 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setScale((s) => clamp(s + 0.25, 1, 4))}
-                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
+                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20"
               >
                 +
               </button>
               <button
                 onClick={() => setScale((s) => clamp(s - 0.25, 1, 4))}
-                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
+                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20"
               >
                 −
               </button>
@@ -635,14 +565,14 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
                   setTx(0);
                   setTy(0);
                 }}
-                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
+                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20"
                 title="Reset"
               >
                 100%
               </button>
               <button
                 onClick={() => closeViewer()}
-                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20 transition-colors"
+                className="px-3 py-1.5 rounded-md bg-white/10 text-white hover:bg-white/20"
                 title="Close"
               >
                 ✕
@@ -694,7 +624,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
                   setTx(0);
                   setTy(0);
                 }}
-                className="absolute left-3 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl transition-colors"
+                className="absolute left-3 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl"
                 aria-label="Previous"
               >
                 ‹
@@ -707,7 +637,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
                   setTx(0);
                   setTy(0);
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl"
                 aria-label="Next"
               >
                 ›
@@ -728,8 +658,8 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
                     setTx(0);
                     setTy(0);
                   }}
-                  className={`h-14 w-14 rounded-md overflow-hidden border transition-colors ${
-                    i === viewerIndex ? "border-white" : "border-white/40 hover:border-white/70"
+                  className={`h-14 w-14 rounded-md overflow-hidden border ${
+                    i === viewerIndex ? "border-white" : "border-white/40"
                   }`}
                 >
                   <img src={src} alt="" className="h-full w-full object-cover" />

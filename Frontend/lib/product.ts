@@ -46,21 +46,13 @@ const toInt = (n: unknown) => {
   return Number.isFinite(x) ? x : 0;
 };
 
-// FIXED: robust money parser (e.g., 1050, "₹1,050", "¥1,500", "1050/-", "₹2,699")
+// Robust money parser (e.g., 1050, "₹1,050", "¥1,500", "1050/-", "₹2,699")
 const toMoney = (v: unknown): number | undefined => {
   if (v === null || v === undefined) return undefined;
-  
-  // If it's already a number, return it
-  if (typeof v === 'number') return v > 0 ? v : undefined;
-  
-  // Handle string cases
+  if (typeof v === "number") return v > 0 ? v : undefined;
   const str = String(v).trim();
-  
-  // Remove ALL currency symbols, commas, and any non-digit characters except decimal point
   const cleaned = str.replace(/[₹¥$,]/g, "").replace(/[^\d.]/g, "");
-  
   if (!cleaned) return undefined;
-  
   const n = parseFloat(cleaned);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 };
@@ -132,7 +124,12 @@ export function shapeProduct(raw: any): NormalizedProduct {
   const _id = typeof p._id === "string" ? p._id : String(p._id ?? "");
 
   // root-level price candidates
-  const rootMin = toMoney(p.price) ?? toMoney(p.minPrice) ?? toMoney(p.mrp) ?? toMoney(p.listPrice);
+  const rootMin =
+    toMoney(p.price) ??
+    toMoney(p.minPrice) ??
+    toMoney(p.mrp) ??
+    toMoney(p.listPrice);
+
   const minPrice = derived.minPrice ?? rootMin;
   const maxPrice = derived.maxPrice ?? toMoney(p.maxPrice) ?? minPrice;
 
@@ -176,7 +173,6 @@ export function shapeProduct(raw: any): NormalizedProduct {
 
 /* ========= Fetcher =========
    Uses your internal Next API route `/api/product/[slug]` and then shapes the result.
-   Relative fetch works in Next server components and route handlers.
 */
 export async function fetchProduct(slug: string): Promise<NormalizedProduct | null> {
   try {
@@ -193,3 +189,6 @@ export async function fetchProduct(slug: string): Promise<NormalizedProduct | nu
     return null;
   }
 }
+
+// Helpful exports for other files
+export const _helpers = { toFullUrl, toMoney };

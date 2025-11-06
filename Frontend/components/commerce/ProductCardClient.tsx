@@ -15,31 +15,6 @@ export type CardProduct = {
   maxPrice?: number;
 };
 
-// Cloudinary URL optimization function
-const optimizeCloudinaryUrl = (url: string) => {
-  if (!url) return "/images/placeholder.png";
-  
-  // If it's already a local image, return as-is
-  if (url.startsWith('/')) return url;
-  
-  // If it's a Cloudinary URL, optimize it
-  if (url.includes('cloudinary.com') && url.includes('/upload/')) {
-    // Check if it already has transformations
-    if (url.includes('/c_') || url.includes('/w_') || url.includes('/q_')) {
-      return url;
-    }
-    // Add optimizations for Cloudinary URLs - optimized for product cards
-    return url.replace('/upload/', '/upload/w_500,h_667,c_fill,q_auto,f_auto/');
-  }
-  
-  // If it's an external URL but not Cloudinary, return as-is
-  if (url.startsWith('http')) {
-    return url;
-  }
-  
-  return "/images/placeholder.png";
-};
-
 const inr = (n?: number) =>
   typeof n === "number" ? `₹${n.toLocaleString("en-IN")}` : "";
 
@@ -50,10 +25,13 @@ function categoryHref(p: CardProduct) {
   return `${base}/${encodeURIComponent(slugOrId)}`;
 }
 
-export default function ProductCardClient({ p }: { p: CardProduct }) {
+interface ProductCardClientProps {
+  p: CardProduct;
+  compact?: boolean;
+}
+
+export default function ProductCardClient({ p, compact = false }: ProductCardClientProps) {
   const [wishIds, setWishIds] = useState<Set<string>>(new Set());
-  const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(true);
   const inWishlist = useMemo(() => wishIds.has(p._id), [wishIds, p._id]);
 
   useEffect(() => {
@@ -65,10 +43,7 @@ export default function ProductCardClient({ p }: { p: CardProduct }) {
     } catch {}
   }, []);
 
-  const toggleWishlist = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
+  const toggleWishlist = () => {
     let arr: any[] = [];
     try {
       const raw = localStorage.getItem("wishlist");
@@ -98,76 +73,74 @@ export default function ProductCardClient({ p }: { p: CardProduct }) {
       ? `${inr(p.minPrice)}–${inr(p.maxPrice)}`
       : inr(p.minPrice || p.maxPrice);
 
-  // Optimize the image URL before using it
-  const img = optimizeCloudinaryUrl(p.images?.[0] || "/images/placeholder.png");
+  const img = p.images?.[0] || "/images/placeholder.jpg";
 
-  const handleImageLoad = () => {
-    setImageLoading(false);
-  };
+  if (compact) {
+    return (
+      <div className="group rounded-lg border border-gray-150 overflow-hidden bg-white hover:shadow-sm transition-all">
+        <div className="relative aspect-[3/4]">
+          <Image
+            src={img}
+            alt={p.name}
+            fill
+            className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            sizes="(max-width:768px) 50vw, (max-width:1280px) 25vw, 25vw"
+          />
+          <button
+            onClick={toggleWishlist}
+            className={`absolute top-1 right-1 w-6 h-6 rounded-full border flex items-center justify-center bg-white/90 backdrop-blur ${
+              inWishlist ? "border-red-400 text-red-500" : "border-gray-200 text-gray-700"
+            }`}
+            aria-label={inWishlist ? "Remove from wishlist" : "Add to wishlist"}
+          >
+            <Heart className={`w-3 h-3 ${inWishlist ? "fill-current" : ""}`} />
+          </button>
+        </div>
 
-  const handleImageError = () => {
-    console.error('Failed to load image:', img);
-    setImageError(true);
-    setImageLoading(false);
-  };
+        <div className="p-1.5">
+          <Link href={categoryHref(p)} className="block">
+            <h3 className="text-[10px] font-medium text-gray-900 line-clamp-2 leading-tight min-h-[2rem]">
+              {p.name}
+            </h3>
+            {price && (
+              <p className="mt-0.5 text-[10px] text-amber-700 font-semibold leading-tight">
+                {price}
+              </p>
+            )}
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="group rounded-2xl border border-gray-200 overflow-hidden bg-white hover:shadow-md transition-all duration-300">
-      <div className="relative aspect-[3/4] bg-gray-100">
+    <div className="group rounded-2xl border border-gray-200 overflow-hidden bg-white hover:shadow-md transition-all">
+      <div className="relative aspect-[3/4]">
         <Image
-          src={imageError ? "/images/placeholder.png" : img}
+          src={img}
           alt={p.name}
           fill
-          className={`object-cover transition-transform duration-500 group-hover:scale-[1.04] ${
-            imageLoading ? 'opacity-0' : 'opacity-100'
-          }`}
-          sizes="(max-width: 768px) 50vw, (max-width: 1280px) 25vw, 25vw"
-          placeholder="blur"
-          blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaUMkX0RbNao4bNZoWyIqCzq6iSRbIlmNgjzU7Uz//Z"
-          onLoad={handleImageLoad}
-          onError={handleImageError}
+          className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          sizes="(max-width:768px) 50vw, (max-width:1280px) 25vw, 25vw"
         />
-        
-        {/* Loading skeleton */}
-        {imageLoading && (
-          <div className="absolute inset-0 bg-gray-200 animate-pulse" />
-        )}
-        
         <button
           onClick={toggleWishlist}
-          className={`absolute top-2 right-2 w-9 h-9 rounded-full border flex items-center justify-center bg-white/90 backdrop-blur transition-all ${
-            inWishlist 
-              ? "border-red-400 text-red-500 hover:bg-red-50" 
-              : "border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-white"
+          className={`absolute top-2 right-2 w-9 h-9 rounded-full border flex items-center justify-center bg-white/90 backdrop-blur ${
+            inWishlist ? "border-red-400 text-red-500" : "border-gray-200 text-gray-700"
           }`}
           aria-label={inWishlist ? "Remove from wishlist" : "Add to wishlist"}
         >
-          <Heart 
-            className={`w-4 h-4 transition-all ${
-              inWishlist ? "fill-current scale-110" : "scale-100"
-            }`} 
-          />
+          <Heart className={`w-4 h-4 ${inWishlist ? "fill-current" : ""}`} />
         </button>
-        
-        {/* Hover overlay */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-all duration-300" />
       </div>
 
       <div className="p-3.5">
-        <Link href={categoryHref(p)} className="block group/link">
-          <h3 className="text-sm font-semibold text-gray-900 line-clamp-2 group-hover/link:text-gray-600 transition-colors">
-            {p.name}
-          </h3>
+        <Link href={categoryHref(p)} className="block">
+          <h3 className="text-sm font-semibold text-gray-900 line-clamp-1">{p.name}</h3>
           {p.category && (
-            <p className="text-xs text-gray-500 mt-0.5 capitalize">
-              {p.category.toLowerCase()}
-            </p>
+            <p className="text-xs text-gray-500 mt-0.5">{p.category}</p>
           )}
-          {price && (
-            <p className="mt-2 text-amber-700 font-semibold text-sm">
-              {price}
-            </p>
-          )}
+          {price && <p className="mt-2 text-amber-700 font-semibold">{price}</p>}
         </Link>
       </div>
     </div>

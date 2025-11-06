@@ -2,9 +2,11 @@
 import Slomo from "@/components/blocks/slomo";
 import Image from "next/image";
 import Link from "next/link";
+import { _helpers, shapeProduct, type NormalizedProduct } from "@/lib/product";
 
 /* ---------- Config ---------- */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
 
 /* ---------- Types ---------- */
 type Category = {
@@ -15,7 +17,8 @@ type Category = {
   sale?: boolean;
 };
 
-type Product = {
+// Minimal product shape for grid
+type GridProduct = {
   _id: string;
   slug?: string;
   product_name?: string;
@@ -28,98 +31,13 @@ type Product = {
   image?: string;
 };
 
-/* ---------- Mobile Bottom Dock ---------- */
-function MobileCategoryDock({ categories }: { categories: Category[] }) {
-  const icons = {
-    "Ethnic Wears": "👘",
-    "Western": "👚", 
-    "Special Offers": "🏷️"
-  };
-
-  return (
-    <nav
-      className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-gray-200"
-      aria-label="Primary categories"
-    >
-      <ul className="grid grid-cols-3">
-        {categories.map((m) => (
-          <li key={m.name} className="flex">
-            <Link
-              href={m.href}
-              className="flex-1 py-2.5 px-1 flex flex-col items-center justify-center gap-0.5 active:scale-[0.98] transition"
-              aria-label={m.name}
-            >
-              <span className="text-lg leading-none">{icons[m.name as keyof typeof icons]}</span>
-              <span className="text-[10px] font-medium text-gray-900 text-center px-1">{m.name}</span>
-              {m.sale ? (
-                <span className="text-[8px] font-semibold text-red-600">SALE</span>
-              ) : null}
-            </Link>
-          </li>
-        ))}
-      </ul>
-      
-      {/* Safe area spacer for iOS */}
-      <div className="h-safe-bottom" />
-    </nav>
-  );
-}
-
-/* ---------- Category Quick Nav (under hero) ---------- */
-function CategoryQuickNav({ categories }: { categories: Category[] }) {
-  return (
-    <div className="bg-white border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-4 py-2">
-        <div className="flex gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar [-ms-overflow-style:none] [scrollbar-width:none] sm:flex-wrap sm:justify-center">
-          {categories.map((c) => (
-            <Link
-              key={c.name}
-              href={c.href}
-              className="inline-flex items-center gap-1 whitespace-nowrap px-2.5 py-1.5 rounded-full text-xs border border-gray-300 hover:border-gray-900 hover:bg-gray-50 transition-colors"
-              aria-label={`Go to ${c.name}`}
-            >
-              <span className="text-xs" aria-hidden>•</span>
-              <span className="font-medium">{c.name}</span>
-              {c.sale ? (
-                <span className="text-[9px] font-semibold text-red-600">SALE</span>
-              ) : null}
-            </Link>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- Data ---------- */
-async function fetchNewArrivals(): Promise<Product[]> {
-  try {
-    const url = `${API_BASE}/api/products?sort=new&limit=40`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const items: Product[] = Array.isArray(data)
-      ? data
-      : data.items || data.products || [];
-    return items;
-  } catch {
-    return [];
-  }
-}
-
-
-/* ---------- Helpers ---------- */
-const isEthnicOrWestern = (c?: string) => {
-  const s = (c || "").toLowerCase();
-  return s.includes("west") || s.includes("ethnic") || s.includes("tradit");
-};
-
-const firstImage = (p: Product) =>
+/* ---------- Image & Price helpers ---------- */
+const firstImage = (p: GridProduct) =>
   (p.images && p.images[0]) || p.image || "/images/placeholder.png";
 
-const displayName = (p: Product) => p.product_name || p.name || "Untitled";
+const displayName = (p: GridProduct) => p.product_name || p.name || "Untitled";
 
-const displayPrice = (p: Product) => {
+const displayPrice = (p: GridProduct) => {
   const min = p.minPrice ?? p.price;
   const max = p.maxPrice ?? p.price;
   if (min && max && min !== max)
@@ -128,14 +46,96 @@ const displayPrice = (p: Product) => {
   return "";
 };
 
-const productHref = (p: Product) => {
+const productHref = (p: GridProduct) => {
+  // Default to Ethnic-Wears page if category is missing
   const base =
     (p.category || "").toLowerCase().includes("west") ? "/western" : "/Ethnic-Wears";
   const slugOrId = encodeURIComponent(p.slug || p._id);
   return `${base}/${slugOrId}`;
 };
 
-/** Deterministic daily shuffle so grid order "changes every day" */
+/* ---------- Fetch & normalize (FIXES loading issues) ---------- */
+/**
+ * Many backends return different shapes:
+ *  - Array
+ *  - { items: [...] }
+ *  - { products: [...] }
+ *  - { data: [...] }
+ * We normalize all, map images to full URLs, and compute min/max prices safely.
+ */
+async function fetchNewArrivals(): Promise<GridProduct[]> {
+  try {
+    const url = `${API_BASE}/api/products?sort=new&limit=40`;
+    const res = await fetch(url, {
+      cache: "no-store",
+      // @ts-ignore – ensure server fetch doesn’t revalidate
+      next: { revalidate: 0 },
+    });
+    if (!res.ok) return [];
+
+    const raw = await res.json();
+    const list: any[] = Array.isArray(raw)
+      ? raw
+      : raw?.items || raw?.products || raw?.data || [];
+
+    // If backend already sends Normalized-like items, pass through.
+    // Otherwise, shape them for reliability using shapeProduct.
+    const normalized: NormalizedProduct[] = list.map((x) => {
+      try {
+        return shapeProduct(x);
+      } catch {
+        // last-resort minimal normalization so one bad item doesn't break the page
+        const id = typeof x?._id === "string" ? x._id : String(x?._id ?? "");
+        const name = x?.product_name || x?.name || x?.title || "Untitled";
+        const imgs = Array.isArray(x?.images) ? x.images : [];
+        const image = imgs?.[0] || "/images/placeholder.png";
+        const min = _helpers.toMoney(x?.minPrice) ?? _helpers.toMoney(x?.price);
+        const max = _helpers.toMoney(x?.maxPrice) ?? min;
+        return {
+          _id: id,
+          slug: x?.slug || `${name}-${id}`.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          product_name: name,
+          name,
+          description: x?.description || "",
+          category: x?.category || "",
+          material: x?.material || "",
+          images: imgs.map(_helpers.toFullUrl),
+          image: _helpers.toFullUrl(image),
+          variants: [],
+          availableSizes: [],
+          availableColors: [],
+          totalStock: 0,
+          minPrice: min,
+          maxPrice: max,
+          price: min,
+          colorImages: {},
+          tags: x?.tags || [],
+          isSale: Boolean(x?.isSale),
+        };
+      }
+    });
+
+    // Convert to the smaller GridProduct used by this page
+    const grid: GridProduct[] = normalized.map((p) => ({
+      _id: p._id,
+      slug: p.slug,
+      product_name: p.product_name,
+      name: p.name,
+      category: p.category,
+      price: p.price,
+      minPrice: p.minPrice,
+      maxPrice: p.maxPrice,
+      images: p.images,
+      image: p.image,
+    }));
+
+    return grid;
+  } catch {
+    return [];
+  }
+}
+
+/* ---------- Deterministic daily shuffle ---------- */
 function dailyShuffle<T>(arr: T[], limit: number): T[] {
   const out = [...arr];
   const today = new Date();
@@ -143,7 +143,9 @@ function dailyShuffle<T>(arr: T[], limit: number): T[] {
   let seed = 0;
   for (let i = 0; i < key.length; i++) seed = (seed * 31 + key.charCodeAt(i)) >>> 0;
   const rand = () => {
-    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
     return ((seed >>> 0) % 10000) / 10000;
   };
   for (let i = out.length - 1; i > 0; i--) {
@@ -184,12 +186,12 @@ export default async function HomePage() {
     { quote: "The attention to detail in every piece is remarkable. Worth every penny!", author: "Lakshmi", role: "Loyal Customer", rating: 5 },
   ];
 
-  // Fetch → filter to Ethnic/Traditional + Western → dedupe by _id → daily shuffle → limit 10
+  // Fetch → daily shuffle → limit 10
   const raw = await fetchNewArrivals();
-  const filtered = raw.filter(p => isEthnicOrWestern(p.category));
-  const dedupMap = new Map(filtered.map(p => [p._id, p]));
-  const filteredUnique = Array.from(dedupMap.values());
-  const newArrivals = dailyShuffle(filteredUnique, 10);
+
+  // If your backend sometimes omits category, DO NOT filter them out—show all.
+  // (If you want to prefer Ethnic/Western at the top, you could sort instead.)
+  const newArrivals = dailyShuffle(raw, 10);
 
   return (
     <div className="min-h-screen pb-14 sm:pb-0">
@@ -198,11 +200,10 @@ export default async function HomePage() {
         className="relative h-[65vh] sm:h-[72vh] md:h-[78vh] min-h-[460px] max-h-[760px] bg-black overflow-hidden"
         aria-label="Hero Image Slider"
       >
-        {/* Slomo component - just the image slider */}
         <Slomo />
       </section>
 
-      {/* CATEGORIES GRID - Much reduced gap */}
+      {/* CATEGORIES GRID */}
       <section className="py-6 sm:py-8 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-4 sm:mb-6">
@@ -262,7 +263,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* 🌟 NEW COLLECTION BANNER - Reduced */}
+      {/* NEW COLLECTION BANNER */}
       <section className="bg-gradient-to-r from-amber-50 to-pink-50 border-y border-amber-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 sm:py-3 flex flex-col sm:flex-row items-center justify-between gap-1">
           <div className="text-center sm:text-left">
@@ -275,7 +276,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ⭐ NEW ARRIVALS - Much reduced gap */}
+      {/* NEW ARRIVALS */}
       {newArrivals.length > 0 && (
         <section className="py-6 sm:py-8 bg-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -326,7 +327,7 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* TESTIMONIALS - Much reduced gap */}
+      {/* TESTIMONIALS */}
       <section className="py-6 sm:py-10 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-4 sm:mb-6">
@@ -368,5 +369,44 @@ export default async function HomePage() {
       {/* MOBILE BOTTOM DOCK */}
       <MobileCategoryDock categories={categories} />
     </div>
+  );
+}
+
+/* ---------- Mobile Bottom Dock ---------- */
+function MobileCategoryDock({ categories }: { categories: Category[] }) {
+  const icons = {
+    "Ethnic Wears": "👘",
+    "Western": "👚",
+    "Special Offers": "🏷️",
+  };
+
+  return (
+    <nav
+      className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-gray-200"
+      aria-label="Primary categories"
+    >
+      <ul className="grid grid-cols-3">
+        {categories.map((m) => (
+          <li key={m.name} className="flex">
+            <Link
+              href={m.href}
+              className="flex-1 py-2.5 px-1 flex flex-col items-center justify-center gap-0.5 active:scale-[0.98] transition"
+              aria-label={m.name}
+            >
+              <span className="text-lg leading-none">
+                {icons[m.name as keyof typeof icons]}
+              </span>
+              <span className="text-[10px] font-medium text-gray-900 text-center px-1">
+                {m.name}
+              </span>
+              {m.sale ? (
+                <span className="text-[8px] font-semibold text-red-600">SALE</span>
+              ) : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <div className="h-safe-bottom" />
+    </nav>
   );
 }
