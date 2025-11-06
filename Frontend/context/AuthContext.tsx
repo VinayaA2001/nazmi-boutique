@@ -1,237 +1,133 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState } from "react";
 
-interface User {
+type User = {
   id: string;
-  email: string;
-  phone: string;
-  firstName: string;
-  lastName: string;
-  emailVerified: boolean;
-  phoneVerified: boolean;
-}
+  email?: string | null;
+  phone?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+};
 
-interface AuthContextType {
+type AuthContextType = {
   user: User | null;
-  isAuthenticated: boolean;
+  token: string | null;
   loading: boolean;
+  isAuthenticated: boolean;
   login: (emailOrPhone: string, password: string) => Promise<void>;
-  register: (userData: {
-    email: string;
-    phone: string;
-    password: string;
+  register: (args: {
     firstName: string;
     lastName: string;
+    email?: string;
+    phone?: string;
+    password: string;
   }) => Promise<void>;
   logout: () => void;
-  verifyEmail: (token: string) => Promise<void>;
-  verifyPhone: (token: string) => Promise<void>;
-  resendVerification: (type: 'email' | 'phone', identifier: string) => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  token: null,
+  loading: true,
+  isAuthenticated: false,
+  login: async () => {},
+  register: async () => {},
+  logout: () => {},
+});
+
+async function safeJson(res: Response) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: `Server returned ${res.status}` };
+  }
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Restore session
   useEffect(() => {
-    // Check if user is logged in on mount
-    const token = localStorage.getItem('auth_token');
-    const userData = localStorage.getItem('user_data');
-    
-    if (token && userData) {
-      try {
-        setUser(JSON.parse(userData));
-      } catch (error) {
-        console.error('Error parsing user data:', error);
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_data');
+    try {
+      const t = localStorage.getItem("auth_token");
+      const u = localStorage.getItem("auth_user");
+      if (t && u) {
+        setToken(t);
+        setUser(JSON.parse(u));
       }
-    }
+    } catch {}
     setLoading(false);
   }, []);
 
   const login = async (emailOrPhone: string, password: string) => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          emailOrPhone,
-          password,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Login failed');
-      }
-
-      localStorage.setItem('auth_token', data.token);
-      localStorage.setItem('user_data', JSON.stringify(data.user));
-      setUser(data.user);
-    } catch (error) {
-      console.error('Login error:', error);
-      throw error;
-    } finally {
-      setLoading(false);
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emailOrPhone, password }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      const err: any = new Error(data?.message || "Login failed");
+      err.code = data?.code;
+      err.field = data?.field;
+      throw err;
     }
+
+    setToken(data.token);
+    setUser(data.user);
+    localStorage.setItem("auth_token", data.token);
+    localStorage.setItem("auth_user", JSON.stringify(data.user));
   };
 
-  const register = async (userData: {
-    email: string;
-    phone: string;
-    password: string;
-    firstName: string;
-    lastName: string;
+  const register: AuthContextType["register"] = async ({
+    firstName,
+    lastName,
+    email,
+    phone,
+    password,
   }) => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Registration failed');
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Registration error:', error);
-      throw error;
-    } finally {
-      setLoading(false);
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firstName, lastName, email, phone, password }),
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      const err: any = new Error(data?.message || "Registration failed");
+      err.code = data?.code;
+      err.field = data?.field;
+      throw err;
     }
-  };
 
-  const verifyEmail = async (token: string) => {
-    try {
-      const response = await fetch('/api/auth/verify-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Email verification failed');
-      }
-
-      // Update user data if logged in
-      if (user) {
-        const updatedUser = { ...user, emailVerified: true };
-        setUser(updatedUser);
-        localStorage.setItem('user_data', JSON.stringify(updatedUser));
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Email verification error:', error);
-      throw error;
-    }
-  };
-
-  const verifyPhone = async (token: string) => {
-    try {
-      const response = await fetch('/api/auth/verify-phone', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Phone verification failed');
-      }
-
-      // Update user data if logged in
-      if (user) {
-        const updatedUser = { ...user, phoneVerified: true };
-        setUser(updatedUser);
-        localStorage.setItem('user_data', JSON.stringify(updatedUser));
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Phone verification error:', error);
-      throw error;
-    }
-  };
-
-  const resendVerification = async (type: 'email' | 'phone', identifier: string) => {
-    try {
-      const endpoint = type === 'email' 
-        ? '/api/auth/send-verification-email'
-        : '/api/auth/send-verification-sms';
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ [type]: identifier }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to send verification');
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Resend verification error:', error);
-      throw error;
+    // Auto-login after successful registration
+    const identifier = (email ?? "").trim().toLowerCase() || (phone ?? "");
+    if (identifier) {
+      await login(identifier, password);
     }
   };
 
   const logout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user_data');
+    setToken(null);
     setUser(null);
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        loading,
-        login,
-        register,
-        logout,
-        verifyEmail,
-        verifyPhone,
-        resendVerification,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  const value: AuthContextType = {
+    user,
+    token,
+    loading,
+    isAuthenticated: !!token && !!user,
+    login,
+    register,
+    logout,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
+export const useAuth = () => useContext(AuthContext);

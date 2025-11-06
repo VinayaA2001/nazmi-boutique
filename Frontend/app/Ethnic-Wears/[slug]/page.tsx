@@ -4,6 +4,7 @@ import type React from "react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Heart,
   ShoppingCart,
@@ -12,18 +13,19 @@ import {
   X,
   Check,
   CreditCard,
+  ArrowLeft,
+  ZoomIn,
+  ZoomOut,
+  RefreshCw,
 } from "lucide-react";
 
 import ProductCardClient, { type CardProduct } from "@/components/commerce/ProductCardClient";
 
 /* ========= Config ========= */
-const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
-const API_BASE =
-  typeof window !== "undefined"
-    ? RAW_API_BASE.replace("localhost", window.location.hostname)
-    : RAW_API_BASE;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ""; // prefer relative /api in app; external only if set
+const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
 
-/* ========= Shipping ========= */
+// Shipping rules
 const SHIPPING_THRESHOLD = 2000;
 const SHIPPING_FEE = 60;
 
@@ -55,11 +57,19 @@ type Product = {
   maxPrice: number;
 };
 
-declare global {
-  interface Window {
-    Razorpay?: any;
-  }
-}
+type ShippingInfo = {
+  name: string;
+  email: string;
+  phone: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  pincode: string;
+  country: string;
+};
+
+type PaymentMethod = "upi" | "card" | "netbanking";
 
 /* ========= Utils ========= */
 const MAX_OPTIONS = 10;
@@ -84,29 +94,32 @@ const inr = (n: number | string) => `₹${Number(n || 0).toLocaleString("en-IN")
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
 const same = (a?: string, b?: string) => norm(a) === norm(b);
 
+// --- Canonical key helpers for robust dedupe ---
 const firstImage = (p: Product) =>
   Array.isArray(p.images) && p.images.length ? p.images[0] : "";
 
+// Extract Cloudinary public_id from a URL, e.g.
+// https://res.cloudinary.com/.../upload/v1761222954/cream5_nrsopq.jpg -> cream5_nrsopq
 const cloudinaryPublicId = (url: string) => {
   try {
-    const path = new URL(url).pathname;
+    const path = new URL(url).pathname;                 // /dq5x.../upload/v176.../cream5_nrsopq.jpg
     const parts = path.split("/").filter(Boolean);
-    const last = parts[parts.length - 1];
-    return (last || "").replace(/\.[a-z0-9]+$/i, "");
+    const last = parts[parts.length - 1];               // cream5_nrsopq.jpg
+    return last.replace(/\.[a-z0-9]+$/i, "");           // cream5_nrsopq
   } catch {
-    const last = (url.split("/").filter(Boolean).pop() || "").replace(/\.[a-z0-9]+$/i, "");
-    return last;
+    const last = url.split("/").filter(Boolean).pop() || "";
+    return last.replace(/\.[a-z0-9]+$/i, "");
   }
 };
 
 const canonicalKey = (p: Product) => {
   const name = norm(p.product_name);
-  const mat = norm(p.material);
+  const mat  = norm(p.material);
   const imgK = cloudinaryPublicId(firstImage(p));
   return `${name}__${mat}__${imgK}`;
 };
 
-// one-time shuffle
+// One-time shuffle helper (non-mutating)
 function shuffleInPlace<T>(arr: T[]): T[] {
   const a = [...arr];
   const rand =
@@ -120,7 +133,13 @@ function shuffleInPlace<T>(arr: T[]): T[] {
   return a;
 }
 
-/* ========= Related Products ========= */
+declare global {
+  interface Window {
+    Razorpay?: any;
+  }
+}
+
+/* ========= Related Products (CARD GRID under product) ========= */
 function RelatedProductsClient({
   currentId,
   currentSlug,
@@ -143,7 +162,9 @@ function RelatedProductsClient({
     (async () => {
       setLoading(true);
       try {
-        const url = `/api/products?limit=${limit + 32}`;
+        const base = API_BASE || "";
+        // Fetch extra, then filter & dedupe locally
+        const url = `${base}/api/products?limit=${limit + 32}`;
         const r = await fetch(url, { cache: "no-store" });
         if (!r.ok) throw new Error("failed");
         const data = await r.json();
@@ -153,11 +174,17 @@ function RelatedProductsClient({
           ? data
           : [];
 
-        const sameCategory = list.filter((p) => p && p.category && p._id && same(p.category, category));
+        // 1) same category
+        const sameCategory = list.filter(
+          (p) => p && p.category && p._id && same(p.category, category)
+        );
+
+        // 2) exclude current product by id AND by slug
         const notCurrent = sameCategory.filter(
           (p) => String(p._id) !== String(currentId) && !same(p.slug, currentSlug)
         );
 
+        // 3) de-duplicate using canonicalKey (name + material + first image id)
         const seen = new Set<string>();
         const unique: Product[] = [];
         for (const p of notCurrent) {
@@ -167,6 +194,7 @@ function RelatedProductsClient({
           unique.push(p);
         }
 
+        // 4) SHUFFLE, then map → CardProduct and slice
         const shuffled = shuffleInPlace(unique);
         const mapped: CardProduct[] = shuffled.slice(0, limit).map((p) => ({
           _id: String(p._id),
@@ -202,6 +230,7 @@ function RelatedProductsClient({
           </div>
         </div>
 
+        {/* 🔥 Card grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
           {rows.map((p) => (
             <ProductCardClient key={p._id} p={p} />
@@ -212,8 +241,9 @@ function RelatedProductsClient({
   );
 }
 
-/* ========= Page ========= */
+/* ========= Page Component ========= */
 export default function ProductDetailPage() {
+  // Be robust to array type in newer Next types
   const params = useParams();
   const slugParamRaw = ((): string => {
     const v: unknown = (params as any)?.slug;
@@ -235,12 +265,29 @@ export default function ProductDetailPage() {
   const [imgIndex, setImgIndex] = useState(0);
   const [qty, setQty] = useState(1);
 
-  /* Wishlist/Cart state */
+  /* Wishlist/Cart/Order state */
   const [wishlistIds, setWishlistIds] = useState<Set<string>>(new Set());
   const [showCartToast, setShowCartToast] = useState(false);
   const [addedName, setAddedName] = useState("");
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [orderProcessing, setOrderProcessing] = useState(false);
+  const [orderSuccess, setOrderSuccess] = useState(false);
+  const [shipping, setShipping] = useState<ShippingInfo>({
+    name: "",
+    email: "",
+    phone: "",
+    address1: "",
+    address2: "",
+    city: "",
+    state: "",
+    pincode: "",
+    country: "India",
+  });
 
-  /* Show-all toggles */
+  // NEW: payment method selection
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("upi");
+
+  /* Show-all toggles for large option sets */
   const [showAllColors, setShowAllColors] = useState(false);
   const [showAllSizes, setShowAllSizes] = useState(false);
 
@@ -252,6 +299,7 @@ export default function ProductDetailPage() {
       try {
         const slugParam = decodeURIComponent(String(slugParamRaw || "")).toLowerCase();
 
+        // Try API: /api/products/[slug]
         const one = await fetch(`/api/products/${slugParam}`, { cache: "no-store" });
         if (one.ok) {
           const p: Product = await one.json();
@@ -264,7 +312,8 @@ export default function ProductDetailPage() {
           return;
         }
 
-        const res = await fetch(`/api/products`, { cache: "no-store" });
+        // Fallback: load all and match locally
+        const res = await fetch("/api/products", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to load products");
         const list: Product[] = await res.json();
 
@@ -336,9 +385,11 @@ export default function ProductDetailPage() {
     const c = color || firstInStock?.colour || colors[0] || "";
     const s = size || firstInStock?.size || sizes[0] || "";
 
+    // Only update state if changed to avoid extra renders
     if (c && !same(c, color)) setColor(c);
     if (s && !same(s, size)) setSize(s);
 
+    // Sync URL search params only if needed (prevents replace loops)
     const q = new URLSearchParams(search.toString());
     let changed = false;
     if (c && q.get("color") !== c) {
@@ -355,7 +406,7 @@ export default function ProductDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product, fullColors.length, fullSizes.length]);
 
-  /* ========= Variant & gallery ========= */
+  /* ========= Variant helpers ========= */
   const variant = useMemo(() => {
     if (!product) return null;
     return (
@@ -372,13 +423,14 @@ export default function ProductDetailPage() {
     return product.images;
   }, [product, variant, color]);
 
+  // Reset visible index when gallery changes
   const galleryKey = useMemo(() => gallery.join("|"), [gallery]);
   useEffect(() => setImgIndex(0), [galleryKey]);
 
   const price = variant ? variant.price : product?.minPrice || 0;
   const stock = variant ? variant.stock : product?.totalStock || 0;
 
-  // Shipping calculations
+  // ===== Shipping calculations =====
   const unitPrice = Number(variant?.price ?? 0);
   const subtotal = unitPrice * qty;
   const shippingFee = subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
@@ -506,44 +558,7 @@ export default function ProductDetailPage() {
     setTimeout(() => setShowCartToast(false), 2500);
   };
 
-  /* ========= Direct Checkout ========= */
-  const handleDirectCheckout = () => {
-    if (!product || !variant) {
-      alert("Please select available options.");
-      return;
-    }
-
-    if (qty > variant.stock) {
-      alert(`Only ${variant.stock} available.`);
-      return;
-    }
-
-    // Create direct order item
-    const directOrderItem = {
-      id: `${product._id}-${variant.size}-${variant.colour}-direct`,
-      productId: product._id,
-      variantId: variant._id,
-      name: displayName(product),
-      price: variant.price,
-      image: (gallery[0] || product.images[0]) ?? "/images/placeholder.jpg",
-      quantity: qty,
-      size: variant.size,
-      color: variant.colour,
-      productCode: product.product_code,
-      material: product.material,
-      category: product.category,
-      maxStock: variant.stock,
-      isDirectOrder: true
-    };
-
-    // Save to sessionStorage for checkout page
-    sessionStorage.setItem('directOrder', JSON.stringify([directOrderItem]));
-    
-    // Redirect to checkout with direct order flag
-    router.push('/checkout?type=direct');
-  };
-
-  /* ========= Lightbox / Zoom ========= */
+  /* ========= Lightbox / Zoom state ========= */
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -588,6 +603,7 @@ export default function ProductDetailPage() {
   const onMouseUp = () => setPanning(false);
   const onMouseLeave = () => setPanning(false);
 
+  // Basic touch support
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart: React.TouchEventHandler = (e) => {
     if (zoom === 1) return;
@@ -635,6 +651,7 @@ export default function ProductDetailPage() {
         </div>
       )}
 
+      {/* Product details */}
       <div className="container mx-auto px-4 pb-10">
         <div className="grid md:grid-cols-2 gap-8">
           {/* LEFT: Gallery */}
@@ -680,8 +697,9 @@ export default function ProductDetailPage() {
             <p className="mt-2 text-xs text-gray-500">Tip: double-click a thumbnail to open fullscreen.</p>
           </div>
 
-          {/* RIGHT: Essentials */}
+          {/* RIGHT: Essentials ONLY */}
           <div>
+            {/* Title + Wishlist */}
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h1 className="text-2xl md:text-3xl font-light text-gray-900">{displayName(product)}</h1>
@@ -701,6 +719,7 @@ export default function ProductDetailPage() {
               </button>
             </div>
 
+            {/* Essentials list */}
             <div className="mt-4 space-y-1 text-sm">
               <p>
                 <span className="text-gray-500">Material:</span>{" "}
@@ -720,6 +739,7 @@ export default function ProductDetailPage() {
               </p>
             </div>
 
+            {/* Price (prominent) */}
             <div className="mt-4">
               <span className="text-3xl font-light text-gray-900">{inr(price)}</span>
               {product.minPrice !== product.maxPrice && (
@@ -844,29 +864,23 @@ export default function ProductDetailPage() {
               </button>
               <button
                 disabled={!variant || stock === 0}
-                onClick={handleDirectCheckout}
+                onClick={() => setShowPaymentModal(true)}
                 className={`flex-1 border py-3 px-6 rounded-lg transition-colors font-medium ${
                   !variant || stock === 0
                     ? "border-gray-300 text-gray-400 cursor-not-allowed"
                     : "border-black text-black hover:bg-black hover:text-white"
                 }`}
               >
-                Buy Now
+                Order Now
               </button>
             </div>
 
-            <div className="mt-4 text-xs text-gray-500">
-              <div className="flex items-center gap-1 mb-1">
-                <CreditCard className="w-3 h-3" />
-                <span>Secure payment via Razorpay</span>
-              </div>
-              <div>UPI • Cards • Net Banking • Wallets • Easy returns • Fast shipping in Kerala</div>
-            </div>
+            <div className="mt-4 text-xs text-gray-500">Secure online payment • Easy returns • Fast shipping in Kerala</div>
           </div>
         </div>
       </div>
 
-      {/* Related products */}
+      {/* ✅ Related products grid */}
       <RelatedProductsClient
         currentId={product._id}
         currentSlug={product.slug || makeSlug(product)}
@@ -874,8 +888,378 @@ export default function ProductDetailPage() {
         limit={12}
       />
 
-      {/* Lightbox code remains the same */}
-      {/* ... */}
+      {/* Payment Modal */}
+      {showPaymentModal && product && variant && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-full max-w-2xl">
+            <div className="p-6">
+              {/* Top bar with Back */}
+              <div className="flex items-center justify-between mb-4">
+                <button onClick={() => setShowPaymentModal(false)} className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900">
+                  <ArrowLeft className="w-4 h-4" />
+                  Back to product
+                </button>
+                <button onClick={() => setShowPaymentModal(false)} className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center hover:bg-gray-200 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {orderSuccess ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Check className="w-8 h-8 text-green-600" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Order Placed Successfully!</h3>
+                  <p className="text-gray-600 mb-1">We’ll contact you at <b>{shipping.phone}</b> with delivery details.</p>
+                  <p className="text-sm text-gray-500">Redirecting to My Orders…</p>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* LEFT: Shipping form */}
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-3">Shipping Details</h4>
+                    <div className="space-y-3">
+                      <input type="text" placeholder="Full Name" value={shipping.name} onChange={(e) => setShipping((s) => ({ ...s, name: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      <input type="email" placeholder="Email Address" value={shipping.email} onChange={(e) => setShipping((s) => ({ ...s, email: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      <input type="tel" placeholder="Phone Number" value={shipping.phone} onChange={(e) => setShipping((s) => ({ ...s, phone: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      <input type="text" placeholder="Address Line 1" value={shipping.address1} onChange={(e) => setShipping((s) => ({ ...s, address1: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      <input type="text" placeholder="Address Line 2 (optional)" value={shipping.address2} onChange={(e) => setShipping((s) => ({ ...s, address2: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="text" placeholder="City" value={shipping.city} onChange={(e) => setShipping((s) => ({ ...s, city: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                        <input type="text" placeholder="State" value={shipping.state} onChange={(e) => setShipping((s) => ({ ...s, state: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input type="text" placeholder="Pincode" value={shipping.pincode} onChange={(e) => setShipping((s) => ({ ...s, pincode: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                        <input type="text" placeholder="Country" value={shipping.country} onChange={(e) => setShipping((s) => ({ ...s, country: e.target.value }))} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT: Summary + Pay Online */}
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-3">Order Summary</h4>
+                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-12 h-12 bg-gray-200 rounded-lg overflow-hidden">
+                          <Image
+                            src={(gallery[0] || product.images[0]) ?? "/images/placeholder.jpg"}
+                            alt={displayName(product)}
+                            width={48}
+                            height={48}
+                            className="object-cover w-full h-full"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">{displayName(product)}</p>
+                          <p className="text-xs text-gray-500">
+                            {size && `Size: ${size}`} {size && color && " • "} {color && `Color: ${color}`}
+                          </p>
+                          <p className="text-xs text-gray-500">Qty: {qty}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-gray-900">{inr(subtotal)}</p>
+                        </div>
+                      </div>
+
+                      <div className="border-t pt-3 space-y-1.5">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Subtotal</span>
+                          <span className="font-medium text-gray-900">{inr(subtotal)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Shipping</span>
+                          <span className={`font-medium ${shippingFee === 0 ? "text-green-700" : "text-gray-900"}`}>
+                            {shippingFee === 0 ? "FREE" : inr(shippingFee)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t">
+                          <span className="text-sm text-gray-600">Total</span>
+                          <span className="text-lg font-semibold text-gray-900">{inr(grandTotal)}</span>
+                        </div>
+                        {shippingFee > 0 && (
+                          <p className="text-xs text-gray-500 pt-1">
+                            Add items worth {inr(SHIPPING_THRESHOLD - subtotal)} more to get <b>Free Shipping</b>.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Payment method selector (visual) */}
+                    <div className="mb-4">
+                      <p className="text-sm font-medium text-gray-900 mb-2">Payment Method</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(["upi", "card", "netbanking"] as PaymentMethod[]).map((m) => (
+                          <button
+                            key={m}
+                            onClick={() => setPaymentMethod(m)}
+                            className={`py-2 px-3 border rounded-lg text-sm capitalize ${
+                              paymentMethod === m ? "border-black bg-black text-white" : "border-gray-300 hover:border-gray-400"
+                            }`}
+                          >
+                            {m === "card" ? "Debit/Credit Card" : m}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">You’ll complete payment securely via Razorpay.</p>
+                    </div>
+
+                    <button
+                      onClick={async () => {
+                        if (!product || !variant) return;
+
+                        const required: (keyof ShippingInfo)[] = [
+                          "name",
+                          "email",
+                          "phone",
+                          "address1",
+                          "city",
+                          "state",
+                          "pincode",
+                          "country",
+                        ];
+                        for (const k of required) {
+                          const v = shipping[k];
+                          if (!v || String(v).trim() === "") {
+                            alert(`Please enter ${k.toUpperCase()}.`);
+                            return;
+                          }
+                        }
+                        if (qty > variant.stock) {
+                          alert(`Only ${variant.stock} available.`);
+                          return;
+                        }
+                        
+
+                        setOrderProcessing(true);
+                        try {
+                          // 1) Create internal order (pending)
+                          const orderBody = {
+                            items: [
+                              {
+                                product_id: product._id,
+                                variant_id: variant._id,
+                                quantity: qty,
+                                price: variant.price,
+                                size: variant.size,
+                                color: variant.colour,
+                                product_code: product.product_code,
+                              },
+                            ],
+                            customer_name: shipping.name,
+                            customer_email: shipping.email,
+                            customer_phone: shipping.phone,
+                            shipping_address: `${shipping.address1}${shipping.address2 ? ", " + shipping.address2 : ""}, ${shipping.city}, ${shipping.state} - ${shipping.pincode}, ${shipping.country}`,
+                            shipping: { ...shipping },
+                            subtotal,
+                            shipping_fee: shippingFee,
+                            total_amount: grandTotal,
+                            payment_method: paymentMethod,
+                            status: "pending",
+                          } as const;
+
+                          const createOrderRes = await fetch("/api/orders", {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${typeof window !== "undefined" ? localStorage.getItem("token") || "" : ""}`,
+                            },
+                            body: JSON.stringify(orderBody),
+                          });
+                          if (!createOrderRes.ok) {
+                            const err = await createOrderRes.json().catch(() => ({}));
+                            throw new Error(err.message || `Order create failed (${createOrderRes.status})`);
+                          }
+                          const orderJson = await createOrderRes.json();
+                          const internalOrderId = orderJson?.order_id || orderJson?._id || orderJson?.id;
+
+                          // 2) Create Razorpay order in backend
+                          const payRes = await fetch("/api/payments/razorpay/create-order", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ amount: Math.round(grandTotal * 100), currency: "INR", receipt: String(internalOrderId) }),
+                          });
+                          if (!payRes.ok) {
+                            const err = await payRes.json().catch(() => ({}));
+                            throw new Error(err.message || `Payment create failed (${payRes.status})`);
+                          }
+                          const payJson = await payRes.json();
+                          const rzpOrderId = payJson?.order_id || payJson?.id;
+
+                          const ok = await (async () => {
+                            if (typeof window === "undefined") return false;
+                            if (window.Razorpay) return true;
+                            return new Promise<boolean>((resolve) => {
+                              const s = document.createElement("script");
+                              s.src = "https://checkout.razorpay.com/v1/checkout.js";
+                              s.async = true;
+                              s.onload = () => resolve(true);
+                              s.onerror = () => resolve(false);
+                              document.body.appendChild(s);
+                            });
+                          })();
+                          if (!ok || !window.Razorpay) throw new Error("Failed to load Razorpay SDK");
+
+                          const rzp = new (window as any).Razorpay({
+                            key: RZP_KEY_ID,
+                            order_id: rzpOrderId,
+                            amount: Math.round(grandTotal * 100),
+                            currency: "INR",
+                            name: "Nazmi Boutique",
+                            description: displayName(product),
+                            image: "/images/logo.png",
+                            prefill: { name: shipping.name, email: shipping.email, contact: shipping.phone },
+                            notes: { internal_order_id: String(internalOrderId), product_code: product.product_code || "" },
+                            theme: { color: "#000000" },
+                            handler: async (response: any) => {
+                              try {
+                                await fetch(`/api/orders/${internalOrderId}/paid`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    gateway: "razorpay",
+                                    razorpay_payment_id: response.razorpay_payment_id,
+                                    razorpay_order_id: response.razorpay_order_id,
+                                    razorpay_signature: response.razorpay_signature,
+                                  }),
+                                });
+                              } catch {}
+
+                              setOrderSuccess(true);
+                              setTimeout(() => {
+                                setShowPaymentModal(false);
+                                router.push("/account/my-orders");
+                              }, 1600);
+                            },
+                            modal: { ondismiss: () => { setOrderProcessing(false); } },
+                          });
+
+                          rzp.open();
+                        } catch (e: any) {
+                          console.error(e);
+                          alert(e?.message || "Payment failed. Please try again.");
+                        } finally {
+                          setOrderProcessing(false);
+                        }
+                      }}
+                      disabled={
+                        orderProcessing ||
+                        !shipping.name ||
+                        !shipping.email ||
+                        !shipping.phone ||
+                        !shipping.address1 ||
+                        !shipping.city ||
+                        !shipping.state ||
+                        !shipping.pincode ||
+                        !shipping.country
+                      }
+                      className="w-full bg-black text-white py-4 px-6 rounded-lg hover:bg-gray-800 transition-colors font-medium flex items-center justify-center gap-3 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      {orderProcessing ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="w-5 h-5" />
+                          Pay Online ({paymentMethod === "card" ? "Card" : paymentMethod})
+                        </>
+                      )}
+                    </button>
+
+                    <button onClick={() => setShowPaymentModal(false)} className="w-full mt-3 text-sm text-gray-600 hover:text-gray-900 underline">
+                      Back to product
+                    </button>
+                    <button onClick={() => router.back()} className="w-full mt-1 text-xs text-gray-500 hover:text-gray-800 underline">
+                      (Go back to previous page)
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Fullscreen Lightbox with Zoom ===== */}
+      {lightboxOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/90 text-white flex flex-col" onWheel={onWheelZoom} role="dialog" aria-modal="true">
+          {/* Top bar */}
+          <div className="flex items-center justify-between p-3 border-b border-white/10">
+            <div className="text-sm opacity-80">{displayName(product)} • {lightboxIndex + 1}/{gallery.length}</div>
+            <div className="flex items-center gap-2">
+              <button onClick={zoomOut} className="px-2 py-1 rounded hover:bg-white/10" aria-label="Zoom out">
+                <ZoomOut className="w-5 h-5" />
+              </button>
+              <span className="w-12 text-center text-xs">{Math.round(zoom * 100)}%</span>
+              <button onClick={zoomIn} className="px-2 py-1 rounded hover:bg-white/10" aria-label="Zoom in">
+                <ZoomIn className="w-5 h-5" />
+              </button>
+              <button onClick={resetZoom} className="px-2 py-1 rounded hover:bg-white/10" aria-label="Reset zoom">
+                <RefreshCw className="w-5 h-5" />
+              </button>
+              <button onClick={closeLightbox} className="ml-2 px-2 py-1 rounded hover:bg-white/10" aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Image area */}
+          <div
+            className="flex-1 relative overflow-hidden"
+            onMouseMove={onMouseMove}
+            onMouseDown={onMouseDown}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseLeave}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+          >
+            <div
+              className="absolute inset-0 flex items-center justify-center"
+              style={{ cursor: zoom > 1 ? (panning ? ("grabbing" as const) : "grab") : "zoom-in" }}
+              onDoubleClick={() => (zoom === 1 ? zoomIn() : resetZoom())}
+            >
+              {/* wrapper to apply transform */}
+              <div
+                style={{
+                  transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+                  transition: panning ? "none" : "transform 120ms ease-out",
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imgUrl(gallery[lightboxIndex])}
+                  alt={`Zoom ${lightboxIndex + 1}`}
+                  className="max-h-[90vh] max-w-[92vw] object-contain select-none"
+                  draggable={false}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Thumbnails row */}
+          {gallery.length > 1 && (
+            <div className="p-3 border-t border-white/10 overflow-x-auto">
+              <div className="flex gap-2">
+                {gallery.map((g, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setLightboxIndex(i);
+                      resetZoom();
+                    }}
+                    className={`relative w-16 h-16 rounded overflow-hidden border ${i === lightboxIndex ? "border-white" : "border-white/20"}`}
+                    aria-label={`Open image ${i + 1}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={imgUrl(g)} alt={`thumb ${i + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

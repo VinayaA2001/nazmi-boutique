@@ -1,16 +1,44 @@
 "use client";
 import Image from "next/image";
+import Link from "next/link";
 import { Product } from "@/lib/data";
 import SizeGuide from "./SizeGuide";
+
+// Cloudinary URL optimization function
+const optimizeCloudinaryUrl = (url: string) => {
+  if (!url) return "/images/placeholder.png";
+  
+  // If it's already a local image, return as-is
+  if (url.startsWith('/')) return url;
+  
+  // If it's a Cloudinary URL, optimize it
+  if (url.includes('cloudinary.com') && url.includes('/upload/')) {
+    // Check if it already has transformations
+    if (url.includes('/c_') || url.includes('/w_') || url.includes('/q_')) {
+      return url;
+    }
+    // Add optimizations for Cloudinary URLs - optimized for product cards
+    return url.replace('/upload/', '/upload/w_500,h_667,c_fill,q_auto,f_auto/');
+  }
+  
+  // If it's an external URL but not Cloudinary, return as-is
+  if (url.startsWith('http')) {
+    return url;
+  }
+  
+  return "/images/placeholder.png";
+};
 
 interface ProductCardProps {
   product: Product;
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
-  // Safe fallbacks
-  const images = Array.isArray(product.images) && product.images.length > 0 ? product.images : [];
-  const firstImage = images[0] ?? "";
+  // Safe fallbacks with Cloudinary optimization
+  const images = Array.isArray(product.images) && product.images.length > 0 
+    ? product.images.map(img => optimizeCloudinaryUrl(img))
+    : [];
+  const firstImage = images[0] || "/images/placeholder.png";
   const tags = Array.isArray((product as any).tags) ? (product as any).tags as string[] : [];
 
   const phone = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "";
@@ -21,7 +49,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     ? Math.max(0, Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100))
     : 0;
 
-  const stockNum = (product as any).stock as number | undefined; // optional in your data
+  const stockNum = (product as any).stock as number | undefined;
   const inStock = product.inStock !== false && (stockNum === undefined || stockNum > 0);
 
   const stockLabel = (() => {
@@ -38,19 +66,19 @@ export default function ProductCard({ product }: ProductCardProps) {
     : [];
 
   return (
-    <article className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden">
+    <article className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
       <div className="relative aspect-[3/4] overflow-hidden">
-        {firstImage ? (
-          <Image
-            src={firstImage}
-            alt={product.name}
-            fill
-            className={`object-cover transition-transform duration-300 ${inStock ? "hover:scale-105" : "grayscale"}`}
-            priority={false}
-          />
-        ) : (
-          <div className="w-full h-full bg-gray-100" />
-        )}
+        <Image
+          src={firstImage}
+          alt={product.name}
+          fill
+          className={`object-cover transition-transform duration-300 ${
+            inStock ? "group-hover:scale-105" : "grayscale"
+          }`}
+          sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+          placeholder="blur"
+          blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaUMkX0RbNao4bNZoWyIqCzq6iSRbIlmNgjzU7Uz//Z"
+        />
 
         {/* NEW badge */}
         {tags.includes("new") && (
@@ -61,7 +89,7 @@ export default function ProductCard({ product }: ProductCardProps) {
 
         {/* Discount badge */}
         {discount > 0 && (
-          <div className="absolute top-3 right-3 bg-[#6D7E5F] text-white px-2 py-1 rounded-full text-xs font-semibold">
+          <div className="absolute top-3 right-3 bg-amber-600 text-white px-2 py-1 rounded-full text-xs font-semibold">
             {discount}% OFF
           </div>
         )}
@@ -82,7 +110,11 @@ export default function ProductCard({ product }: ProductCardProps) {
       </div>
 
       <div className="p-4">
-        <h3 className="font-semibold text-[#2C2C2C] mb-1 line-clamp-1">{product.name}</h3>
+        <Link href={`/products/${product.id}`} className="group/link">
+          <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2 group-hover/link:text-amber-700 transition-colors">
+            {product.name}
+          </h3>
+        </Link>
 
         {/* Product code (optional) */}
         {(product as any).productCode && (
@@ -110,9 +142,9 @@ export default function ProductCard({ product }: ProductCardProps) {
 
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-[#6D7E5F]">₹{product.price}</span>
+            <span className="text-lg font-bold text-amber-700">₹{product.price.toLocaleString("en-IN")}</span>
             {product.originalPrice && product.originalPrice > product.price && (
-              <span className="text-sm text-gray-500 line-through">₹{product.originalPrice}</span>
+              <span className="text-sm text-gray-500 line-through">₹{product.originalPrice.toLocaleString("en-IN")}</span>
             )}
           </div>
           <span
@@ -131,20 +163,20 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
 
         <div className="flex gap-2">
-          <a
+          <Link
             href={`/products/${product.id}`}
-            className="flex-1 text-center bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+            className="flex-1 text-center bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
           >
             View Details
-          </a>
+          </Link>
 
           <a
             href={wa}
             target="_blank"
             rel="noopener noreferrer"
-            className={`flex-1 text-center px-3 py-2 rounded-lg transition-colors text-sm ${
+            className={`flex-1 text-center px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
               inStock && phone
-                ? "bg-[#6D7E5F] text-white hover:bg-[#5A6B4F]"
+                ? "bg-amber-600 text-white hover:bg-amber-700"
                 : "bg-gray-200 text-gray-500 cursor-not-allowed"
             }`}
             aria-disabled={!inStock || !phone}

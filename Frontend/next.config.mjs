@@ -1,39 +1,32 @@
+// next.config.mjs
 import createMDX from "@next/mdx";
 const withMDX = createMDX({ extension: /\.mdx?$/ });
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ["razorpay"],
-  // __dirname isn't available in ESM; use cwd for output tracing:
   outputFileTracingRoot: process.cwd(),
 
   images: {
-    // Allow Cloudinary (CDN + site) and local dev previews
-    remotePatterns: [
-      // Cloudinary CDN (recommended host)
-      {
-        protocol: "https",
-        hostname: "res.cloudinary.com",
-        // keep your cloud name restriction (more secure)
-        pathname: "/dq5xhg9uo/**",
-      },
-      // Sometimes URLs come from cloudinary.com (marketing host) — allow it too
-      {
-        protocol: "https",
-        hostname: "cloudinary.com",
-        pathname: "/dq5xhg9uo/**",
-      },
-      // Local images while developing
-      {
-        protocol: "http",
-        hostname: "localhost",
-        pathname: "/**",
-      },
-    ],
-    // Modern formats (you already had these)
+    // Add 'domains' for a broad allow-list (coexists with remotePatterns)
+    domains: ["res.cloudinary.com", "nazmi-boutique-2.onrender.com", "localhost", "127.0.0.1"],
+
     formats: ["image/avif", "image/webp"],
-    // NOTE: Next.js does not support an `images.qualities` array.
-    // If you want to control quality per image, use the <Image quality={...}/> prop.
+
+    // Be permissive with paths so any Cloudinary transformation/version works
+    remotePatterns: [
+      // Cloudinary (entire host)
+      { protocol: "https", hostname: "res.cloudinary.com", pathname: "/**" },
+      // If you ever have old http links, uncomment the next line:
+      // { protocol: "http", hostname: "res.cloudinary.com", pathname: "/**" },
+
+      // Render backend (if it ever returns absolute file URLs)
+      { protocol: "https", hostname: "nazmi-boutique-2.onrender.com", pathname: "/**" },
+
+      // Local dev API (adjust ports as needed)
+      { protocol: "http", hostname: "localhost", port: "5000", pathname: "/**" },
+      { protocol: "http", hostname: "127.0.0.1", port: "5000", pathname: "/**" },
+    ],
   },
 
   pageExtensions: ["js", "jsx", "ts", "tsx", "mdx"],

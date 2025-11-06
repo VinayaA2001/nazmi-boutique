@@ -1,89 +1,93 @@
 "use client";
 
-import { useState } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useState, useMemo } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+
+/* helpers */
+const isEmail = (s: string) => /^\S+@\S+\.\S+$/.test(s.trim());
+const isIndian10Digit = (s: string) => /^[6-9]\d{9}$/.test(s.trim());
+const normPhone = (s: string) => s.replace(/[^\d]/g, "");
 
 export default function RegisterPage() {
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    password: '',
-    confirmPassword: '',
-  });
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState('');
-  
   const { register } = useAuth();
   const router = useRouter();
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-  };
+  const [firstName, setFirstName] = useState("");
+  const [lastName,  setLastName]  = useState("");
+  const [email,     setEmail]     = useState("");
+  const [phone,     setPhone]     = useState("");
+  const [password,  setPassword]  = useState("");
+  const [confirm,   setConfirm]   = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const [error, setError]         = useState("");
+  const [emailErr, setEmailErr]   = useState("");
+  const [phoneErr, setPhoneErr]   = useState("");
+  const [passErr, setPassErr]     = useState("");
+  const [loading, setLoading]     = useState(false);
+
+  const emailValid = useMemo(() => (email ? isEmail(email) : true), [email]);
+  const phoneValid = useMemo(() => (phone ? isIndian10Digit(phone) : true), [phone]);
+  const passMatch  = useMemo(() => (confirm ? password === confirm : true), [password, confirm]);
+
+  const canSubmit =
+    !loading &&
+    firstName.trim() &&
+    lastName.trim() &&
+    (email.trim() || phone.trim()) &&
+    emailValid &&
+    phoneValid &&
+    password.length >= 6 &&
+    passMatch;
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
+    setError(""); setEmailErr(""); setPhoneErr(""); setPassErr("");
 
-    // Validation
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      setLoading(false);
+    if (!firstName.trim() || !lastName.trim()) {
+      setError("First name and last name are required");
       return;
     }
-
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
-      setLoading(false);
+    if (!email.trim() && !phone.trim()) {
+      setError("Provide at least email or phone");
       return;
     }
-
-    // Indian phone number validation
-    const phoneRegex = /^[6-9]\d{9}$/;
-    const cleanPhone = formData.phone.replace(/\D/g, '');
-    if (!phoneRegex.test(cleanPhone)) {
-      setError('Please enter a valid 10-digit Indian phone number');
-      setLoading(false);
+    if (email.trim() && !emailValid) {
+      setEmailErr("Enter a valid email address");
+      return;
+    }
+    if (phone.trim() && !phoneValid) {
+      setPhoneErr("Enter a valid 10-digit Indian phone number");
+      return;
+    }
+    if (password.length < 6) {
+      setPassErr("Password must be at least 6 characters");
+      return;
+    }
+    if (password !== confirm) {
+      setPassErr("Passwords do not match");
       return;
     }
 
     try {
+      setLoading(true);
       await register({
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        phone: cleanPhone,
-        password: formData.password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() ? normPhone(phone) : undefined,
+        password,
       });
-      
-      setSuccess('Registration successful! You can now login with your credentials.');
-      
-      // Clear form
-      setFormData({
-        firstName: '',
-        lastName: '',
-        email: '',
-        phone: '',
-        password: '',
-        confirmPassword: '',
-      });
-      
-      // Redirect to login after 2 seconds
-      setTimeout(() => {
-        router.push('/login');
-      }, 3000);
-      
+      router.push("/account"); // auto-logged-in by context
     } catch (err: any) {
-      setError(err.message || 'Registration failed. Please try again.');
+      const msg = err?.message || "Registration failed";
+      const field = err?.field as string | undefined;
+
+      if (field === "email") setEmailErr(msg);
+      else if (field === "phone") setPhoneErr(msg);
+      else if (field === "password") setPassErr(msg);
+      else setError(msg);
     } finally {
       setLoading(false);
     }
@@ -96,168 +100,119 @@ export default function RegisterPage() {
           <div className="mx-auto h-12 w-12 bg-amber-600 rounded-full flex items-center justify-center">
             <span className="text-white font-bold text-lg">N</span>
           </div>
-          <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Create your account
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Join Nazmi Boutique for the best fashion experience
-          </p>
+          <h2 className="mt-6 text-3xl font-bold text-gray-900">Create Account</h2>
+          <p className="mt-2 text-sm text-gray-600">Use your email or a 10-digit Indian phone number</p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="mt-8 space-y-6" onSubmit={onSubmit} noValidate>
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
               {error}
             </div>
           )}
-          
-          {success && (
-            <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-lg text-sm">
-              {success}
-              <p className="mt-2">Redirecting to login page...</p>
-            </div>
-          )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div>
-              <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
-                First Name *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
               <input
-                id="firstName"
-                name="firstName"
                 type="text"
-                required
-                value={formData.firstName}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500"
                 placeholder="First name"
-              />
-            </div>
-            <div>
-              <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
-                Last Name *
-              </label>
-              <input
-                id="lastName"
-                name="lastName"
-                type="text"
                 required
-                value={formData.lastName}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
-                placeholder="Last name"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                placeholder="Last name"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 ${
+                  email && !emailValid ? "border-red-300" : "border-gray-300"
+                }`}
+                placeholder="you@example.com"
+              />
+              {emailErr && <p className="mt-1 text-sm text-red-600">{emailErr}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 ${
+                  phone && !phoneValid ? "border-red-300" : "border-gray-300"
+                }`}
+                placeholder="10-digit Indian number (e.g. 9876543210)"
+                inputMode="numeric"
+                pattern="[0-9]*"
+              />
+              {phoneErr && <p className="mt-1 text-sm text-red-600">{phoneErr}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 ${
+                  passErr ? "border-red-300" : "border-gray-300"
+                }`}
+                placeholder="Minimum 6 characters"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+              <input
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 ${
+                  passErr ? "border-red-300" : "border-gray-300"
+                }`}
+                placeholder="Re-enter password"
+                required
+              />
+              {passErr && <p className="mt-1 text-sm text-red-600">{passErr}</p>}
             </div>
           </div>
 
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-              Email Address *
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              value={formData.email}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
-              placeholder="your@email.com"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-              Phone Number *
-            </label>
-            <input
-              id="phone"
-              name="phone"
-              type="tel"
-              required
-              value={formData.phone}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
-              placeholder="9995947709"
-              maxLength={10}
-            />
-            <p className="mt-1 text-xs text-gray-500">Enter 10-digit Indian phone number</p>
-          </div>
-
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              Password *
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
-              placeholder="At least 6 characters"
-              minLength={6}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
-              Confirm Password *
-            </label>
-            <input
-              id="confirmPassword"
-              name="confirmPassword"
-              type="password"
-              required
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-colors"
-              placeholder="Confirm your password"
-            />
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-amber-600 text-white py-3 px-4 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Creating Account...
-                </span>
-              ) : (
-                'Create Account'
-              )}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="w-full bg-amber-600 text-white py-3 px-4 rounded-lg hover:bg-amber-700 disabled:opacity-50"
+          >
+            {loading ? "Creating..." : "Create Account"}
+          </button>
 
           <div className="text-center">
             <p className="text-sm text-gray-600">
-              Already have an account?{' '}
-              <Link href="/login" className="font-medium text-amber-600 hover:text-amber-500 transition-colors">
+              Already have an account?{" "}
+              <Link href="/login" className="font-medium text-amber-600 hover:text-amber-500">
                 Sign in here
               </Link>
             </p>
           </div>
         </form>
-
-        {/* Contact Info */}
-        <div className="mt-8 p-6 bg-white rounded-lg border border-gray-200 text-center">
-          <h3 className="text-sm font-medium text-gray-900 mb-2">Need Help?</h3>
-          <p className="text-sm text-gray-600 mb-2">Contact Nazmi Boutique</p>
-          <div className="space-y-1 text-sm text-gray-600">
-            <p>📞 +91 99959 47709</p>
-            <p>📧 nazmiboutique1@gmail.com</p>
-            <p>📍 Kozhikode, Kerala, India</p>
-          </div>
-        </div>
       </div>
     </div>
   );

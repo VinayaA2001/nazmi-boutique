@@ -6,7 +6,8 @@
       "@/*": ["./*"],
       "@/context/*": ["./context/*"],
       "@/components/*": ["./components/*"],
-      "@/utils/*": ["./utils/*"]
+      "@/utils/*": ["./utils/*"],
+      "@/lib/*": ["./lib/*"]
     },
 
     /* === Module & Target === */
@@ -35,7 +36,10 @@
     "incremental": true,
 
     /* === Next.js Plugin === */
-    "plugins": [{ "name": "next" }]
+    "plugins": [{ "name": "next" }],
+
+    /* Help TS keep a single cache path on Windows */
+    "tsBuildInfoFile": "./.tsbuildinfo"
   },
   "include": [
     "app/**/*",

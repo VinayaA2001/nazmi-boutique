@@ -1,35 +1,25 @@
-import { NextRequest, NextResponse } from 'next/server';
-import twilio from 'twilio';
+import { Resend } from "resend";
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-
-export async function POST(request: NextRequest) {
+export async function POST(req) {
   try {
-    const { phone } = await request.json();
-
-    // Get user and verification token from database
-    const user = await prisma.user.findFirst({
-      where: { phone },
-      select: { phoneVerificationToken: true, firstName: true },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!process.env.RESEND_API_KEY) {
+      console.warn("Missing RESEND_API_KEY. Skipping email sending.");
+      return Response.json({ error: "Email service not configured" }, { status: 500 });
     }
 
-    // Send verification SMS using Twilio
-    await client.messages.create({
-      body: `Welcome to Nazmi Boutique! Your verification code is: ${user.phoneVerificationToken}. Use this code to verify your phone number.`,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phone,
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const { email } = await req.json();
+
+    await resend.emails.send({
+      from: "no-reply@nazmi-boutique.com",
+      to: email,
+      subject: "Verification Email",
+      html: `<p>Your verification code is: 123456</p>`,
     });
 
-    return NextResponse.json({ message: 'Verification SMS sent' });
+    return Response.json({ message: "Verification email sent" });
   } catch (error) {
-    console.error('SMS verification error:', error);
-    return NextResponse.json(
-      { error: 'Failed to send verification SMS' },
-      { status: 500 }
-    );
+    console.error("Email error:", error);
+    return Response.json({ error: "Failed to send email" }, { status: 500 });
   }
 }

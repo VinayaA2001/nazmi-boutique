@@ -1,57 +1,78 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { Resend } from 'resend';
+// app/api/send-verification-email/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Force Node runtime; avoid static opt
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const { email } = await request.json();
+    const { email, firstName = "there", token } =
+      (await req.json().catch(() => ({}))) as {
+        email?: string;
+        firstName?: string;
+        token?: string;
+      };
 
-    // Get user and verification token from database
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: { emailVerificationToken: true, firstName: true },
-    });
-
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!email || !token) {
+      return NextResponse.json(
+        { error: "Missing email or token" },
+        { status: 400 }
+      );
     }
 
-    // Send verification email
+    // Make sure key exists in server env
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "RESEND_API_KEY is not configured" },
+        { status: 500 }
+      );
+    }
+
+    // Create client inside handler (prevents build-time issues)
+    const resend = new Resend(apiKey);
+
+    // Derive a safe base URL (prefers request origin)
+    const origin =
+      req.headers.get("origin") ||
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      (process.env.NEXTAUTH_URL?.startsWith("http")
+        ? process.env.NEXTAUTH_URL
+        : undefined) ||
+      "http://localhost:3000";
+
+    const verifyUrl = `${origin}/verify-email?token=${encodeURIComponent(
+      token
+    )}&email=${encodeURIComponent(email)}`;
+
     await resend.emails.send({
-      from: 'Nazmi Boutique <nazmiboutique1@gmail.com>',
+      // IMPORTANT: Resend requires a verified domain sender.
+      // Replace with something like "no-reply@yourdomain.com" that you've verified in Resend.
+      from: process.env.EMAIL_FROM || "Nazmi Boutique <no-reply@yourdomain.com>",
       to: email,
-      subject: 'Verify Your Email - Nazmi Boutique',
+      subject: "Verify Your Email - Nazmi Boutique",
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #d97706;">Welcome to Nazmi Boutique!</h2>
-          <p>Dear ${user.firstName},</p>
-          <p>Thank you for registering with Nazmi Boutique. Please verify your email address by clicking the button below:</p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.NEXTAUTH_URL}/verify-email?token=${user.emailVerificationToken}" 
-               style="background-color: #d97706; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              Verify Email Address
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+          <h2>Hi ${firstName},</h2>
+          <p>Click the button below to verify your email.</p>
+          <p>
+            <a href="${verifyUrl}" style="background:#000;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">
+              Verify Email
             </a>
-          </div>
-          <p>Or copy and paste this link in your browser:</p>
-          <p>${process.env.NEXTAUTH_URL}/verify-email?token=${user.emailVerificationToken}</p>
-          <p>If you didn't create an account, please ignore this email.</p>
-          <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 30px 0;">
-          <p style="color: #666; font-size: 14px;">
-            Nazmi Boutique<br/>
-            Kozhikode, Kerala, India<br/>
-            +91 99959 47709<br/>
-            nazmiboutique1@gmail.com
           </p>
+          <p>Or open this link: ${verifyUrl}</p>
         </div>
       `,
     });
 
-    return NextResponse.json({ message: 'Verification email sent' });
-  } catch (error) {
-    console.error('Email verification error:', error);
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("[send-verification-email] error:", err);
     return NextResponse.json(
-      { error: 'Failed to send verification email' },
+      { error: err?.message || "Failed to send email" },
       { status: 500 }
     );
   }
