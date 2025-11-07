@@ -103,7 +103,7 @@ export default function WishlistPage() {
                 Browse Western
               </Link>
               <Link 
-                href="/traditional"
+                href="/Ethnic-Wears"
                 className="border border-gray-300 text-gray-700 px-8 py-3 rounded-lg font-medium hover:border-gray-400 transition-colors"
               >
                 Browse Traditional
@@ -163,7 +163,13 @@ export default function WishlistPage() {
                           Add to Cart
                         </button>
                         <Link 
-                          href={item.category ? `/${item.category}/${item.subcategory}` : '#'}
+                          href={(() => {
+                            const cat = (item.category || '').toString().toLowerCase();
+                            if (cat.includes('ethnic') || cat.includes('traditional')) return '/Ethnic-Wears';
+                            if (cat.includes('western')) return '/western';
+                            if (cat.includes('sale')) return '/sale';
+                            return '/';
+                          })()}
                           className="w-10 h-10 bg-white border border-gray-300 rounded flex items-center justify-center hover:border-gray-400 transition-colors"
                         >
                           <Eye className="w-4 h-4" />

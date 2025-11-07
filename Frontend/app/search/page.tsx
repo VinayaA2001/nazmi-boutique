@@ -12,8 +12,61 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 /* ---------- Helpers ---------- */
 const imgUrl = (p?: string | null) => {
   if (!p || typeof p !== "string") return "/images/poster1.png";
-  if (p.startsWith("http") || p.startsWith("/")) return p;
-  return `/images/${p}`;
+  let s = String(p).trim();
+  if (!s) return "/images/poster1.png";
+  if (s.startsWith("//")) s = "https:" + s;
+  // Map local backend file URLs to the deployed backend
+  if (s.startsWith("http://localhost:5000") || s.startsWith("http://127.0.0.1:5000")) {
+    const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+    if (base) s = base + s.replace(/^http:\/\/(localhost|127\.0\.0\.1):5000/, "");
+  }
+  // Force https for render backend host
+  const backendHost = "nazmi-boutique-2.onrender.com";
+  if (s.startsWith(`http://${backendHost}`)) s = s.replace("http://", "https://");
+  if (s.startsWith("http") || s.startsWith("/")) return s;
+  return `/images/${s}`;
+};
+
+// Extract best images from a raw product record (images > colorImages > variants)
+const extractImages = (p: any): string[] => {
+  if (Array.isArray(p?.images) && p.images.length) return p.images as string[];
+  if (p?.colorImages && typeof p.colorImages === "object") {
+    for (const arr of Object.values(p.colorImages as Record<string, any>)) {
+      if (Array.isArray(arr) && arr.length) return arr as string[];
+    }
+  }
+  if (Array.isArray(p?.variants)) {
+    for (const v of p.variants) {
+      if (Array.isArray(v?.images) && v.images.length) return v.images as string[];
+    }
+  }
+  if (p?.image) return [String(p.image)];
+  return [];
+};
+
+// Compute a price band from various shapes: prefer explicit min/max, else variants, else price
+const toNumber = (v: any): number | undefined => {
+  if (v === null || v === undefined) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+const priceBand = (p: any): { min?: number; max?: number } => {
+  const minP = toNumber(p?.minPrice);
+  const maxP = toNumber(p?.maxPrice);
+  if (minP && maxP) return { min: minP, max: maxP };
+  const variantPrices: number[] = Array.isArray(p?.variants)
+    ? (p.variants
+        .map((v: any) => toNumber(v?.price))
+        .filter((n: any) => typeof n === "number") as number[])
+    : [];
+  if (variantPrices.length) {
+    const min = Math.min(...variantPrices);
+    const max = Math.max(...variantPrices);
+    return { min, max };
+  }
+  const price = toNumber(p?.price);
+  return price ? { min: price, max: price } : {};
 };
 
 // normalize for fuzzy comparisons: lowercase, remove non-alphanum
@@ -146,13 +199,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   // Normalize to CardProduct
   let rows: (CardProduct & { _score?: number })[] = products.map((p: any) => {
     const name = (p.product_name || p.name || "Untitled").toString();
-    const images =
-      (Array.isArray(p.images) && p.images.length
-        ? p.images
-        : p.image
-        ? [p.image]
-        : []
-      ).map(imgUrl);
+    const imgs = extractImages(p);
+    const images = (imgs.length ? imgs : ["/images/poster1.png"]).map(imgUrl);
+    const band = priceBand(p);
 
     return {
       _id: String(p._id ?? p.id ?? name),
@@ -160,8 +209,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       name,
       category: (p.category || "general").toString(),
       images,
-      minPrice: p.minPrice ?? p.price ?? 0,
-      maxPrice: p.maxPrice ?? p.price ?? 0,
+      minPrice: band.min,
+      maxPrice: band.max,
     };
   });
 

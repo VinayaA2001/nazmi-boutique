@@ -174,10 +174,10 @@ export default function WesternPage() {
         setLoading(true);
         const r = await fetch("/api/products?category=western", { cache: "no-store" });
         const data = r.ok ? await r.json() : [];
-        const products = (Array.isArray(data) ? data : [])
+        const products = (Array.isArray(data?.products) ? data.products : Array.isArray(data) ? data : [])
           .map(normalizeProduct)
           .filter(isWesternOnly);
-        setProductList(products);
+        setProductList(products.slice(0, 20));
       } catch (e: any) {
         setError(e?.message || "Failed to load products");
       } finally {

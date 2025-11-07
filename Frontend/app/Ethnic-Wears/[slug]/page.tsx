@@ -123,6 +123,43 @@ const extractImages = (p: Product): string[] => {
   return [];
 };
 
+// Guard against western items leaking into ethnic contexts
+const ETHNIC_WORDS = [
+  "ethnic", "traditional", "saree", "salwar", "kurta", "lehenga",
+  "anarkali", "churidar", "dupatta", "mundu", "set"
+];
+const WESTERN_WORDS = [
+  "western", "jeans", "denim", "top", "tops", "dress", "skirt",
+  "shirt", "t-shirt", "trouser", "jacket", "officewear"
+];
+const isEthnicOnly = (p: Product): boolean => {
+  const hay = `${p.category} ${p.material} ${p.product_name} ${p.description}`.toLowerCase();
+  const hasEthnic = ETHNIC_WORDS.some((k) => hay.includes(k));
+  const hasWestern = WESTERN_WORDS.some((k) => hay.includes(k));
+  return hasEthnic || (!hasWestern && (p.category || "").toLowerCase().includes("ethnic"));
+};
+
+// Price band helpers (derive from product or its variants)
+const num = (v: any): number | undefined => {
+  if (v === null || v === undefined) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+const bandFrom = (p: any): { min?: number; max?: number } => {
+  const minP = num(p?.minPrice);
+  const maxP = num(p?.maxPrice);
+  if (minP && maxP) return { min: minP, max: maxP };
+  const prices: number[] = Array.isArray(p?.variants)
+    ? (p.variants
+        .map((v: any) => num(v?.price))
+        .filter((n: any) => typeof n === "number") as number[])
+    : [];
+  if (prices.length) return { min: Math.min(...prices), max: Math.max(...prices) };
+  const single = num(p?.price);
+  return single ? { min: single, max: single } : {};
+};
+
 const cloudinaryPublicId = (url: string) => {
   try {
     const path = new URL(url).pathname;
@@ -231,7 +268,7 @@ function RelatedProductsClient({
           : [];
 
         const sameCategory = list.filter(
-          (p) => p && p.category && p._id && same(p.category, category)
+          (p) => p && p.category && p._id && same(p.category, category) && isEthnicOnly(p)
         );
 
         const notCurrent = sameCategory.filter(
@@ -250,14 +287,15 @@ function RelatedProductsClient({
         const shuffled = shuffleInPlace(unique);
         const mapped: CardProduct[] = shuffled.slice(0, limit).map((p) => {
           const imgs = extractImages(p);
+          const band = bandFrom(p);
           return {
             _id: String(p._id),
             slug: p.slug || makeSlug(p),
             name: p.product_name || "Untitled",
             category: p.category,
             images: (imgs.length ? imgs : ["/images/poster1.png"]).map(imgUrl),
-            minPrice: p.minPrice,
-            maxPrice: p.maxPrice,
+            minPrice: band.min,
+            maxPrice: band.max,
           };
         });
 
@@ -910,7 +948,7 @@ export default function ProductDetailPage() {
         currentId={product._id}
         currentSlug={product.slug || makeSlug(product)}
         category={product.category}
-        limit={12}
+        limit={20}
       />
 
       {showPaymentModal && <NoOrdersWarning setShowPaymentModal={setShowPaymentModal} />}
