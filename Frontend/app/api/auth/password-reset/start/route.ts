@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { MongoClient } from "mongodb";
 import { Resend } from "resend";
 
-const MONGO_URI = process.env.MONGO_URI!;
-const resend = new Resend(process.env.RESEND_API_KEY!);
+const MONGO_URI = process.env.MONGO_URI || process.env.DATABASE_URL || "";
 const EMAIL_FROM = process.env.EMAIL_FROM || "Nazmi Boutique <no-reply@nazmi.com>";
 
 let client: MongoClient;
@@ -20,6 +19,16 @@ const genCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 export async function POST(req: NextRequest) {
   try {
     const { email } = await req.json();
+
+    // Strict mode: require email transport to be configured
+    const key = process.env.RESEND_API_KEY;
+    if (!key) {
+      return NextResponse.json(
+        { ok: false, error: "Email service not configured (RESEND_API_KEY missing)" },
+        { status: 503 }
+      );
+    }
+
     const { users, tokens } = await cols();
 
     const user = await users.findOne({ email: (email || "").trim().toLowerCase() });
@@ -30,6 +39,8 @@ export async function POST(req: NextRequest) {
     await tokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await tokens.insertOne({ email: user.email, code, expiresAt });
 
+    // Send email (key checked above)
+    const resend = new Resend(key);
     await resend.emails.send({
       from: EMAIL_FROM,
       to: user.email,
