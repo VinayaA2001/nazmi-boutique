@@ -983,4 +983,4 @@ if __name__ == "__main__":
     print(f"🔑 Razorpay: {'✅ Configured' if rzp else '❌ Not Configured'}")
     print(f"🗄️ Database: {'✅ Connected' if check_db_connection() else '❌ Not Connected'}")
     # Respect PORT env var when running directly
-    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "6000")))
+    app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
