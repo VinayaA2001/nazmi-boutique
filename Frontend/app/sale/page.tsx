@@ -36,7 +36,7 @@ type Product = {
 
 /* ---------- Helpers ---------- */
 const imgUrl = (p?: string | null) => {
-  if (!p || typeof p !== "string") return "/images/placeholder.jpg";
+  if (!p || typeof p !== "string") return "/images/poster1.png";
   if (p.startsWith("http") || p.startsWith("/")) return p;
   return `/images/${p}`;
 };
@@ -76,7 +76,7 @@ function normalizeProduct(raw: any): Product {
       : minPrice;
 
   const images: string[] =
-    Array.isArray(raw.images) && raw.images.length ? raw.images.map(imgUrl) : ["/images/placeholder.jpg"];
+    Array.isArray(raw.images) && raw.images.length ? raw.images.map(imgUrl) : ["/images/poster1.png"];
 
   const hasMultipleOptions =
     (variants?.length || 0) > 1 || (availableSizes?.length || 0) > 1 || (availableColors?.length || 0) > 1;
@@ -176,7 +176,7 @@ export default function SaleListingPage() {
       productId: id,
       name: p.product_name || `${p.material} ${p.category}`,
       price: p.minPrice,
-      image: p.images?.[0] || "/images/placeholder.jpg",
+      image: p.images?.[0] || "/images/poster1.png",
       productCode: p.product_code,
     };
     const updated = has ? existing.filter((x: any) => x.id !== id) : [...existing, item];

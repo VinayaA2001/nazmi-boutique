@@ -178,7 +178,7 @@ export const rehydrateProducts = async (
         _id: p._id,
         name: p.name,
         price: p.price,
-        image: p.image || "/images/placeholder.jpg",
+        image: p.image || "/images/poster1.png",
         inStock: (p.stock ?? 0) > 0,
         slug: p.slug,
       };

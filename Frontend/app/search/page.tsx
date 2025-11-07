@@ -11,7 +11,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 /* ---------- Helpers ---------- */
 const imgUrl = (p?: string | null) => {
-  if (!p || typeof p !== "string") return "/images/placeholder.jpg";
+  if (!p || typeof p !== "string") return "/images/poster1.png";
   if (p.startsWith("http") || p.startsWith("/")) return p;
   return `/images/${p}`;
 };

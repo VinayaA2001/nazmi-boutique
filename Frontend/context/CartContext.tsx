@@ -46,28 +46,42 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Storage key used across the app
+  const STORAGE_KEY = 'cart';
+
   useEffect(() => {
-    // Load cart from localStorage
-    const savedCart = localStorage.getItem('nazmi_cart');
-    if (savedCart) {
+    const load = () => {
       try {
-        const parsedCart = JSON.parse(savedCart);
-        // Validate cart items structure
-        if (Array.isArray(parsedCart)) {
-          setCartItems(parsedCart);
+        const savedCart = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('nazmi_cart');
+        if (savedCart) {
+          const parsed = JSON.parse(savedCart);
+          if (Array.isArray(parsed)) setCartItems(parsed);
         }
-      } catch (error) {
-        console.error('Error parsing cart data:', error);
-        localStorage.removeItem('nazmi_cart');
+      } catch (err) {
+        console.warn('[Cart] parse error:', err);
+        localStorage.removeItem(STORAGE_KEY);
       }
-    }
-    setIsLoaded(true);
+      setIsLoaded(true);
+    };
+
+    load();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || (e.key !== STORAGE_KEY && e.key !== 'nazmi_cart')) return;
+      load();
+    };
+    const onCustom = () => load();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('cart-updated', onCustom as EventListener);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('cart-updated', onCustom as EventListener);
+    };
   }, []);
 
   useEffect(() => {
     // Save cart to localStorage whenever it changes
     if (isLoaded) {
-      localStorage.setItem('nazmi_cart', JSON.stringify(cartItems));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cartItems));
     }
   }, [cartItems, isLoaded]);
 
@@ -89,12 +103,15 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
         );
       }
       
-      return [...prevItems, { ...item, quantity: 1 }];
+      const next = [...prevItems, { ...item, quantity: 1 }];
+      return next;
     });
+    try { window.dispatchEvent(new Event('cart-updated')); } catch {}
   };
 
   const removeFromCart = (id: string) => {
     setCartItems(prevItems => prevItems.filter(item => item.id !== id));
+    try { window.dispatchEvent(new Event('cart-updated')); } catch {}
   };
 
   const updateQuantity = (id: string, quantity: number) => {
@@ -108,10 +125,12 @@ export const CartProvider: React.FC<CartProviderProps> = ({ children }) => {
         item.id === id ? { ...item, quantity } : item
       )
     );
+    try { window.dispatchEvent(new Event('cart-updated')); } catch {}
   };
 
   const clearCart = () => {
     setCartItems([]);
+    try { window.dispatchEvent(new Event('cart-updated')); } catch {}
   };
 
   const getCartTotal = (): number => {

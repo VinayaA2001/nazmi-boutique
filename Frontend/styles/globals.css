@@ -108,6 +108,8 @@ html {
   scroll-behavior: smooth;
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  /* Ensure anchors/auto-scroll account for fixed header */
+  --header-height: 80px;
 }
 
 body {
@@ -603,3 +605,11 @@ h4, .h4 {
     box-shadow: none !important;
   }
 }
+
+/* Offset content and anchor scroll for fixed header */
+main { padding-top: var(--header-height); }
+@media (min-width: 640px) {
+  html { --header-height: 96px; }
+}
+/* When the browser scrolls inputs/targets into view, keep them below header */
+input, select, textarea, [data-anchor], [id] { scroll-margin-top: calc(var(--header-height) + 8px); }

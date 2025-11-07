@@ -74,9 +74,18 @@ type PaymentMethod = "upi" | "card" | "netbanking";
 
 /* ========= Utils ========= */
 const imgUrl = (p?: string | null) => {
-  if (!p || typeof p !== "string") return "/images/placeholder.jpg";
-  if (p.startsWith("http") || p.startsWith("/")) return p;
-  return `/images/${p}`;
+  if (!p || typeof p !== "string") return "/images/poster1.png";
+  let s = String(p).trim();
+  if (!s) return "/images/poster1.png";
+  if (s.startsWith("//")) s = "https:" + s;
+  const backendHost = "nazmi-boutique-2.onrender.com";
+  if (s.startsWith(`http://${backendHost}`)) s = s.replace("http://", "https://");
+  if (s.startsWith("http://localhost:5000") || s.startsWith("http://127.0.0.1:5000")) {
+    const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+    if (base) s = base + s.replace(/^http:\/\/(localhost|127\.0\.0\.1):5000/, "");
+  }
+  if (s.startsWith("http") || s.startsWith("/")) return s;
+  return `/images/${s}`;
 };
 
 const makeSlug = (p: Product) => {
@@ -93,6 +102,24 @@ const same = (a?: string, b?: string) => norm(a) === norm(b);
 // Dedupe helpers
 const firstImage = (p: Product) =>
   Array.isArray(p.images) && p.images.length ? p.images[0] : "";
+
+// Prefer product.images, then colorImages[current], then any variant image; fallback empty
+const extractImages = (p: Product): string[] => {
+  if (Array.isArray(p.images) && p.images.length) return p.images;
+  // colorImages may be an object of arrays, pick first non-empty
+  if (p.colorImages && typeof p.colorImages === 'object') {
+    for (const arr of Object.values(p.colorImages)) {
+      if (Array.isArray(arr) && arr.length) return arr as string[];
+    }
+  }
+  // variants images
+  if (Array.isArray(p.variants)) {
+    for (const v of p.variants) {
+      if (Array.isArray(v.images) && v.images.length) return v.images;
+    }
+  }
+  return [];
+};
 
 const cloudinaryPublicId = (url: string) => {
   try {
@@ -219,15 +246,18 @@ function RelatedProductsClient({
         }
 
         const shuffled = shuffleInPlace(unique);
-        const mapped: CardProduct[] = shuffled.slice(0, limit).map((p) => ({
-          _id: String(p._id),
-          slug: p.slug || makeSlug(p),
-          name: p.product_name || "Untitled",
-          category: p.category,
-          images: (Array.isArray(p.images) && p.images.length ? p.images : ["/images/placeholder.jpg"]).map(imgUrl),
-          minPrice: p.minPrice,
-          maxPrice: p.maxPrice,
-        }));
+        const mapped: CardProduct[] = shuffled.slice(0, limit).map((p) => {
+          const imgs = extractImages(p);
+          return {
+            _id: String(p._id),
+            slug: p.slug || makeSlug(p),
+            name: p.product_name || "Untitled",
+            category: p.category,
+            images: (imgs.length ? imgs : ["/images/poster1.png"]).map(imgUrl),
+            minPrice: p.minPrice,
+            maxPrice: p.maxPrice,
+          };
+        });
 
         if (alive) setRows(mapped);
       } catch {
@@ -318,7 +348,7 @@ export default function ProductDetailPage() {
         const one = await fetch(`/api/products/${slugParam}`, { cache: "no-store" });
         if (one.ok) {
           const p: Product = await one.json();
-          p.images = (p.images?.length ? p.images : ["/images/placeholder.jpg"]).map(imgUrl);
+          p.images = (p.images?.length ? p.images : ["/images/poster1.png"]).map(imgUrl);
           if (p.colorImages)
             Object.keys(p.colorImages).forEach((c) => {
               p.colorImages![c] = (p.colorImages![c] || []).map(imgUrl);
@@ -332,7 +362,7 @@ export default function ProductDetailPage() {
         const list: Product[] = await res.json();
 
         list.forEach((p: any) => {
-          p.images = (Array.isArray(p.images) && p.images.length ? p.images : ["/images/placeholder.jpg"]).map(imgUrl);
+          p.images = (Array.isArray(p.images) && p.images.length ? p.images : ["/images/poster1.png"]).map(imgUrl);
           if (p.colorImages) {
             Object.keys(p.colorImages).forEach((c) => {
               p.colorImages[c] = (p.colorImages[c] || []).map(imgUrl);
@@ -429,7 +459,7 @@ export default function ProductDetailPage() {
   }, [product, color, size]);
 
   const gallery = useMemo(() => {
-    if (!product) return ["/images/placeholder.jpg"];
+    if (!product) return ["/images/poster1.png"];
     if (variant?.images?.length) return variant.images.map(imgUrl);
     if (product.colorImages?.[color]?.length) return product.colorImages[color]!.map(imgUrl);
     return product.images;
@@ -505,7 +535,7 @@ export default function ProductDetailPage() {
       productId: id,
       name: displayName(product),
       price: product.minPrice,
-      image: (gallery[0] || product.images[0]) ?? "/images/placeholder.jpg",
+      image: (gallery[0] || product.images[0]) ?? "/images/poster1.png",
       productCode: product.product_code,
     };
     let existing: any[] = [];
@@ -532,7 +562,7 @@ export default function ProductDetailPage() {
       variantId: variant._id,
       name: displayName(product),
       price: variant.price,
-      image: (gallery[0] || product.images[0]) ?? "/images/placeholder.jpg",
+      image: (gallery[0] || product.images[0]) ?? "/images/poster1.png",
       quantity: qty,
       size: variant.size,
       color: variant.colour,
@@ -883,9 +913,10 @@ export default function ProductDetailPage() {
 
       {/* Payment Modal */}
       {showPaymentModal && product && variant && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-2xl">
-            <div className="p-6">
+        <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 sm:pt-8">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl">
+              <div className="p-6">
               {/* Top bar with Back */}
               <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setShowPaymentModal(false)} className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900">
@@ -907,7 +938,7 @@ export default function ProductDetailPage() {
                   <p className="text-sm text-gray-500">Redirecting to My Orders…</p>
                 </div>
               ) : (
-                <div className="grid md:grid-cols-2 gap-6">
+                <div className="grid md:grid-cols-2 gap-6 p-6 pt-0">
                   {/* LEFT: Shipping form */}
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-3">Shipping Details</h4>
@@ -935,7 +966,7 @@ export default function ProductDetailPage() {
                       <div className="flex items-center gap-3 mb-3">
                         <div className="w-12 h-12 bg-gray-200 rounded-lg overflow-hidden">
                           <Image
-                            src={(gallery[0] || product.images[0]) ?? "/images/placeholder.jpg"}
+                            src={(gallery[0] || product.images[0]) ?? "/images/poster1.png"}
                             alt={displayName(product)}
                             width={48}
                             height={48}
@@ -1227,6 +1258,7 @@ export default function ProductDetailPage() {
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {/* ===== Fullscreen Lightbox with Zoom ===== */}

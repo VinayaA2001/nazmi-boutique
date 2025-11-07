@@ -20,7 +20,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
 const CLOUDINARY_BASE =
   "https://res.cloudinary.com/dq5xhg9uo/image/upload/";
-const PLACEHOLDER = "/images/placeholder.jpg";
+const PLACEHOLDER = "/images/poster1.png";
 
 /* ---------- Types ---------- */
 interface ProductVariant {

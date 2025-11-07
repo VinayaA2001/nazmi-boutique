@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Heart, ShoppingCart, Eye, Star } from "lucide-react";
 
 /* ======= Config ======= */
-const PLACEHOLDER = "/images/placeholder.jpg";
+const PLACEHOLDER = "/images/poster1.png";
 const RAW = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"; // no trailing '/'
 const ORIGIN = RAW.replace(/\/+$/, "");
 const API = `${ORIGIN}/api`;

@@ -73,7 +73,7 @@ export default function ProductCardClient({ p, compact = false }: ProductCardCli
       ? `${inr(p.minPrice)}–${inr(p.maxPrice)}`
       : inr(p.minPrice || p.maxPrice);
 
-  const img = p.images?.[0] || "/images/placeholder.jpg";
+  const img = p.images?.[0] || "/images/poster1.png";
 
   if (compact) {
     return (

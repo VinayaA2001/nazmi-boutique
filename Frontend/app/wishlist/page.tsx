@@ -138,7 +138,7 @@ export default function WishlistPage() {
                   {/* Product Image */}
                   <div className="relative h-64 overflow-hidden">
                     <Image
-                      src={item.image || item.images?.[0] || "/images/placeholder.jpg"}
+                      src={item.image || item.images?.[0] || "/images/poster1.png"}
                       alt={item.title || item.name}
                       fill
                       className="object-cover group-hover:scale-105 transition duration-700"

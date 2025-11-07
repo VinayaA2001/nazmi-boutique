@@ -33,7 +33,7 @@ export default function WishlistGrid({
             const fresh = rehydrated[w.productId];
             const price = fresh?.price ?? w.price;
             const inStock = fresh?.inStock ?? true;
-            const img = fresh?.image ?? w.image ?? "/images/placeholder.jpg";
+            const img = fresh?.image ?? w.image ?? "/images/poster1.png";
             const slug = fresh?.slug ? `/product/${fresh.slug}` : "#";
 
             return (

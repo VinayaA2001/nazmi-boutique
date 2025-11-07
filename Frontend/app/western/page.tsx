@@ -45,7 +45,7 @@ interface Product {
 
 /* ---------- Helpers ---------- */
 const getImageUrl = (imagePath?: string | null): string => {
-  if (!imagePath || typeof imagePath !== "string") return "/images/placeholder.jpg";
+  if (!imagePath || typeof imagePath !== "string") return "/images/poster1.png";
   if (imagePath.startsWith("http")) return imagePath;
   if (imagePath.startsWith("/")) return imagePath;
   return `/images/${imagePath}`;
@@ -72,7 +72,7 @@ function SafeImage({
       fill={!!fill}
       sizes={sizes}
       className={className}
-      onError={() => setImgSrc("/images/placeholder.jpg")}
+      onError={() => setImgSrc("/images/poster1.png")}
     />
   );
 }
@@ -114,7 +114,7 @@ function normalizeProduct(raw: any): Product {
     category: raw.category ?? "",
     images: (Array.isArray(raw.images) && raw.images.length
       ? raw.images
-      : ["/images/placeholder.jpg"]
+      : ["/images/poster1.png"]
     ).map(getImageUrl),
     description: raw.description ?? "",
     variants,

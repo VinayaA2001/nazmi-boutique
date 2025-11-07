@@ -148,7 +148,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
     if (variantWithImgs?.images?.length) return variantWithImgs.images;
     const ck = norm(activeColor);
     if (ck && colorImgMap?.[ck]?.length) return colorImgMap[ck];
-    return baseImages.length ? baseImages : ["/images/placeholder.jpg"];
+    return baseImages.length ? baseImages : ["/images/poster1.png"];
   }, [matchingVariants, activeColor, colorImgMap, baseImages]);
 
   useEffect(() => setMainIndex(0), [gallery.join("|")]);
@@ -326,7 +326,7 @@ export default function ProductDetailsClient({ product }: { product: Product }) 
             title="Click to view large"
           >
             <Image
-              src={gallery[mainIndex] || "/images/placeholder.jpg"}
+              src={gallery[mainIndex] || "/images/poster1.png"}
               alt={title}
               fill
               className="object-cover"
