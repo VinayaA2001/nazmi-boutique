@@ -9,7 +9,7 @@ export default function AccountPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !isAuthenticated) router.push("/login");
+    if (!loading && !isAuthenticated) router.push("/auth/login");
   }, [loading, isAuthenticated, router]);
 
   if (loading) {
@@ -22,12 +22,14 @@ export default function AccountPage() {
 
   if (!isAuthenticated) return null;
 
+  const displayName = (user as any)?.firstName || (user as any)?.username || (user?.email?.split("@")[0] ?? "");
+
   return (
     <section className="min-h-screen bg-gray-50 pt-20">
       <div className="max-w-3xl mx-auto px-4">
-        <h1 className="text-2xl font-bold">Welcome back{user?.firstName ? `, ${user.firstName}` : ""}!</h1>
-        <p className="text-gray-600 mt-2">Email: {user?.email || "—"}</p>
-        <p className="text-gray-600">Phone: {user?.phone || "—"}</p>
+        <h1 className="text-2xl font-bold">Welcome back{displayName ? `, ${displayName}` : ""}!</h1>
+        <p className="text-gray-600 mt-2">Email: {user?.email || "-"}</p>
+        <p className="text-gray-600">Phone: {(user as any)?.phone || "-"}</p>
       </div>
     </section>
   );

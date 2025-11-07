@@ -15,6 +15,13 @@ import {
   ChevronUp,
 } from "lucide-react";
 
+/* ---------- Config ---------- */
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
+const CLOUDINARY_BASE =
+  "https://res.cloudinary.com/dq5xhg9uo/image/upload/";
+const PLACEHOLDER = "/images/placeholder.jpg";
+
 /* ---------- Types ---------- */
 interface ProductVariant {
   _id: string;
@@ -45,12 +52,28 @@ interface Product {
   reviewCount?: number;
 }
 
-/* ---------- Helpers ---------- */
-const getImageUrl = (imagePath?: string | null): string => {
-  if (!imagePath || typeof imagePath !== "string") return "/images/placeholder.jpg";
-  if (imagePath.startsWith("http")) return imagePath;
-  if (imagePath.startsWith("/")) return imagePath;
-  return `${process.env.NEXT_PUBLIC_IMAGE_BASE_URL || ''}/images/${imagePath}`;
+/* ---------- Helpers (robust) ---------- */
+const toMoney = (v: unknown): number | undefined => {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === "number") return v > 0 ? v : undefined;
+  const n = String(v).trim().replace(/[₹¥$,]/g, "").replace(/[^\d.]/g, "");
+  if (!n) return undefined;
+  const x = parseFloat(n);
+  return Number.isFinite(x) && x > 0 ? x : undefined;
+};
+
+const toInt = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Accepts: full url, /images/foo.jpg, "folder/file.jpg" (Cloudinary public id)
+const toFullUrl = (img?: string | null): string => {
+  if (!img || typeof img !== "string") return PLACEHOLDER;
+  if (img.startsWith("http")) return img;
+  if (img.startsWith("/")) return img; // your local public images
+  // treat as cloudinary public id
+  return CLOUDINARY_BASE + img.replace(/^\//, "");
 };
 
 function SafeImage({
@@ -66,34 +89,34 @@ function SafeImage({
   fill?: boolean;
   sizes?: string;
 }) {
-  const [imgSrc, setImgSrc] = useState(getImageUrl(src));
+  const [imgSrc, setImgSrc] = useState(toFullUrl(src));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    setImgSrc(getImageUrl(src));
+    setImgSrc(toFullUrl(src));
     setLoading(true);
     setError(false);
   }, [src]);
 
   return (
-    <div className={`relative ${fill ? 'w-full h-full' : ''}`}>
+    <div className={`relative ${fill ? "w-full h-full" : ""}`}>
       {loading && (
         <div className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center">
           <div className="w-8 h-8 border-2 border-gray-300 border-t-black rounded-full animate-spin" />
         </div>
       )}
       <Image
-        src={error ? "/images/placeholder.jpg" : imgSrc}
+        src={error ? PLACEHOLDER : imgSrc}
         alt={alt}
         fill={!!fill}
         sizes={sizes}
-        className={`${className} ${loading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
+        className={`${className} ${loading ? "opacity-0" : "opacity-100"} transition-opacity duration-300`}
         onLoad={() => setLoading(false)}
         onError={() => {
           setError(true);
           setLoading(false);
-          setImgSrc("/images/placeholder.jpg");
+          setImgSrc(PLACEHOLDER);
         }}
       />
     </div>
@@ -101,77 +124,67 @@ function SafeImage({
 }
 
 function normalizeProduct(raw: any): Product {
-  if (!raw) {
-    throw new Error("Invalid product data");
-  }
+  if (!raw) throw new Error("Invalid product data");
 
-  const variants: ProductVariant[] = Array.isArray(raw.variants) 
-    ? raw.variants.map((v: any) => ({
-        _id: String(v._id || v.id || Math.random().toString(36).substr(2, 9)),
-        size: String(v.size || ""),
-        colour: String(v.colour || v.color || ""),
-        stock: Number(v.stock) || 0,
-        price: Number(v.price) || 0,
-        images: Array.isArray(v.images) ? v.images : [],
-      }))
-    : [];
+  // Variants
+  const rawVariants = Array.isArray(raw.variants) ? raw.variants : [];
+  const variants: ProductVariant[] = rawVariants.map((v: any) => ({
+    _id: String(v?._id ?? v?.id ?? crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)),
+    size: String(v?.size ?? "").trim(),
+    colour: String(v?.colour ?? v?.color ?? "").trim(),
+    stock: toInt(v?.stock ?? v?.quantity),
+    price: toMoney(v?.price) ?? 0,
+    images: Array.isArray(v?.images) ? v.images.map(toFullUrl) : [],
+  }));
 
-  // Extract sizes and colors from variants
-  const derivedSizes = Array.from(
-    new Set(variants.map((v) => v.size).filter(Boolean).map(s => s.trim()))
-  );
-  const derivedColors = Array.from(
-    new Set(variants.map((v) => v.colour).filter(Boolean).map(c => c.trim()))
-  );
+  // Derive sizes/colors
+  const derivedSizes = Array.from(new Set(variants.map(v => v.size).filter(Boolean)));
+  const derivedColors = Array.from(new Set(variants.map(v => v.colour).filter(Boolean)));
 
-  // Use provided arrays or derive from variants
-  const availableSizes = Array.isArray(raw.availableSizes) && raw.availableSizes.length 
-    ? raw.availableSizes.map((s: any) => String(s).trim()).filter(Boolean)
-    : derivedSizes;
+  const availableSizes: string[] =
+    Array.isArray(raw.availableSizes) && raw.availableSizes.length
+      ? raw.availableSizes.map((s: any) => String(s).trim()).filter(Boolean)
+      : derivedSizes;
 
-  const availableColors = Array.isArray(raw.availableColors) && raw.availableColors.length
-    ? raw.availableColors.map((c: any) => String(c).trim()).filter(Boolean)
-    : derivedColors;
+  const availableColors: string[] =
+    Array.isArray(raw.availableColors) && raw.availableColors.length
+      ? raw.availableColors.map((c: any) => String(c).trim()).filter(Boolean)
+      : derivedColors;
 
-  // Calculate total stock
-  const totalStock = typeof raw.totalStock === "number" && raw.totalStock >= 0
-    ? raw.totalStock
-    : variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+  const totalStock =
+    typeof raw.totalStock === "number" && raw.totalStock >= 0
+      ? raw.totalStock
+      : variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
 
-  // Calculate price range
-  const variantPrices = variants.map((v) => Number(v.price)).filter((n) => !Number.isNaN(n) && n > 0);
-  const basePrice = Number(raw.price) || 0;
-  
-  let minPrice = 0;
-  let maxPrice = 0;
-  
-  if (variantPrices.length > 0) {
-    minPrice = Math.min(...variantPrices);
-    maxPrice = Math.max(...variantPrices);
-  } else if (basePrice > 0) {
-    minPrice = maxPrice = basePrice;
-  }
+  // Prices (robust)
+  const variantPrices = variants.map(v => v.price).filter(n => n > 0);
+  let minPrice =
+    (variantPrices.length ? Math.min(...variantPrices) : undefined) ??
+    toMoney(raw.minPrice) ??
+    toMoney(raw.price) ??
+    0;
 
-  // Override with explicit values if provided
-  if (typeof raw.minPrice === "number" && raw.minPrice >= 0) minPrice = raw.minPrice;
-  if (typeof raw.maxPrice === "number" && raw.maxPrice >= 0) maxPrice = raw.maxPrice;
+  let maxPrice =
+    (variantPrices.length ? Math.max(...variantPrices) : undefined) ??
+    toMoney(raw.maxPrice) ??
+    minPrice;
 
-  // Ensure maxPrice is not less than minPrice
   if (maxPrice < minPrice) maxPrice = minPrice;
 
-  // Handle images
-  const images = (Array.isArray(raw.images) && raw.images.length
-    ? raw.images
-    : variants.length > 0 && variants[0].images
+  // Images
+  const images: string[] = (
+    Array.isArray(raw.images) && raw.images.length
+      ? raw.images
+      : variants.length > 0 && variants[0].images && variants[0].images.length
       ? variants[0].images
-      : ["/images/placeholder.jpg"]
-  ).map(getImageUrl);
+      : [PLACEHOLDER]
+  ).map(toFullUrl);
 
   return {
-    _id: String(raw._id || raw.id),
+    _id: String(raw._id ?? raw.id ?? ""),
     slug: raw.slug,
     product_code: raw.product_code || raw.productCode || "",
-    product_name: raw.product_name || raw.productName || raw.name || "",
+    product_name: raw.product_name || raw.productName || raw.name || "Untitled",
     material: raw.material || "",
     category: raw.category || "",
     images,
@@ -182,56 +195,49 @@ function normalizeProduct(raw: any): Product {
     totalStock,
     minPrice,
     maxPrice,
-    hasMultipleOptions: variants.length > 1 || availableColors.length > 1 || availableSizes.length > 1,
+    hasMultipleOptions:
+      (variants.length > 1) ||
+      availableColors.length > 1 ||
+      availableSizes.length > 1,
     rating: typeof raw.rating === "number" ? raw.rating : 0,
     reviewCount: typeof raw.reviewCount === "number" ? raw.reviewCount : 0,
   };
 }
 
-/* ---------- Ethnic-only filter ---------- */
+/* ---------- Ethnic-only helper (relaxed) ---------- */
 const ETHNIC_KEYWORDS = [
-  "ethnic", "traditional", "saree", "salwar", "kurta", "lehenga", 
-  "churidar", "dupatta", "patiala", "anarkali", "ghagra", "choli"
+  "ethnic", "traditional", "saree", "salwar", "kurta", "lehenga",
+  "churidar", "dupatta", "patiala", "anarkali", "ghagra", "choli",
+  "set", "kali"
 ];
 
 const WESTERN_KEYWORDS = [
-  "western", "jeans", "tops", "dress", "skirt", "officewear", 
+  "western", "jeans", "tops", "dress", "skirt", "officewear",
   "denim", "jacket", "t-shirt", "shirt", "pants", "trouser"
 ];
 
-const isEthnicOnly = (p: Product): boolean => {
-  if (!p) return false;
-  
-  const searchText = `${p.category} ${p.material} ${p.product_name} ${p.description}`.toLowerCase();
-  
-  const hasEthnic = ETHNIC_KEYWORDS.some(keyword => searchText.includes(keyword));
-  const hasWestern = WESTERN_KEYWORDS.some(keyword => searchText.includes(keyword));
-  
-  return hasEthnic && !hasWestern;
+// If API already filtered by category=ethnic, don't over-filter.
+// Use this only as a *soft* guard when backend sends mixed results.
+const looksEthnic = (p: Product): boolean => {
+  const hay = `${p.category} ${p.material} ${p.product_name} ${p.description}`.toLowerCase();
+  const hasEthnic = ETHNIC_KEYWORDS.some(k => hay.includes(k));
+  const hasWestern = WESTERN_KEYWORDS.some(k => hay.includes(k));
+  // prefer ethnic if both appear; but don’t exclude unless clearly western-only
+  return hasEthnic || (!hasWestern && (p.category || "").toLowerCase().includes("ethnic"));
 };
 
 /* ---------- Slug ---------- */
 const slugify = (s: string): string =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9\u0900-\u097F]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
+  s.toLowerCase().replace(/[^a-z0-9\u0900-\u097F]+/g, "-").replace(/(^-|-$)+/g, "");
 
 const makeSlug = (p: Product): string => {
   if (p.slug) return slugify(p.slug);
-  
-  const baseName = p.product_name?.length 
-    ? p.product_name 
-    : `${p.material}-${p.category}`;
-    
-  const withCode = p.product_code 
-    ? `${baseName}-${p.product_code}`
-    : baseName;
-    
+  const base = p.product_name || `${p.material}-${p.category}` || String(p._id);
+  const withCode = p.product_code ? `${base}-${p.product_code}` : base;
   return slugify(withCode);
 };
 
-/* ---------- Wishlist Management ---------- */
+/* ---------- Wishlist ---------- */
 interface WishlistItem {
   id: string;
   productId: string;
@@ -246,76 +252,57 @@ const useWishlist = () => {
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const loadWishlist = () => {
+    const load = () => {
       try {
         const data = localStorage.getItem("wishlist");
         if (data) {
           const parsed: WishlistItem[] = JSON.parse(data);
-          setWishlist(new Set(parsed.map(item => item.id)));
+          setWishlist(new Set(parsed.map(i => i.id)));
         }
-      } catch (error) {
-        console.error("Error loading wishlist:", error);
-      }
+      } catch {}
     };
-
-    loadWishlist();
-
-    // Listen for wishlist updates from other components
-    const handleStorageChange = () => {
-      loadWishlist();
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("wishlist-updated", handleStorageChange);
-
+    load();
+    const onChange = () => load();
+    window.addEventListener("storage", onChange);
+    window.addEventListener("wishlist-updated", onChange);
     return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("wishlist-updated", handleStorageChange);
+      window.removeEventListener("storage", onChange);
+      window.removeEventListener("wishlist-updated", onChange);
     };
   }, []);
 
   const toggleWishlist = (product: Product) => {
     try {
-      const currentWishlist: WishlistItem[] = JSON.parse(localStorage.getItem("wishlist") || "[]");
+      const current: WishlistItem[] = JSON.parse(localStorage.getItem("wishlist") || "[]");
       const productSlug = makeSlug(product);
-      
-      const wishlistItem: WishlistItem = {
+      const item: WishlistItem = {
         id: product._id,
         productId: product._id,
-        name: product.product_name || `${product.material} ${product.category}`,
+        name: product.product_name,
         price: product.minPrice,
-        image: getImageUrl(product.images?.[0]),
+        image: toFullUrl(product.images?.[0]),
         productCode: product.product_code,
         slug: productSlug,
       };
-
-      const existingIndex = currentWishlist.findIndex(item => item.id === product._id);
-      let newWishlist: WishlistItem[];
-
-      if (existingIndex > -1) {
-        // Remove from wishlist
-        newWishlist = currentWishlist.filter(item => item.id !== product._id);
+      const exists = current.findIndex(i => i.id === product._id);
+      let next: WishlistItem[];
+      if (exists > -1) {
+        next = current.filter(i => i.id !== product._id);
         setWishlist(prev => {
-          const next = new Set(prev);
-          next.delete(product._id);
-          return next;
+          const m = new Set(prev);
+          m.delete(product._id);
+          return m;
         });
       } else {
-        // Add to wishlist
-        newWishlist = [...currentWishlist, wishlistItem];
+        next = [...current, item];
         setWishlist(prev => new Set([...prev, product._id]));
       }
-
-      localStorage.setItem("wishlist", JSON.stringify(newWishlist));
+      localStorage.setItem("wishlist", JSON.stringify(next));
       window.dispatchEvent(new Event("wishlist-updated"));
-
-    } catch (error) {
-      console.error("Error updating wishlist:", error);
-    }
+    } catch {}
   };
 
-  const isInWishlist = (id: string): boolean => wishlist.has(id);
-
+  const isInWishlist = (id: string) => wishlist.has(id);
   return { wishlist, toggleWishlist, isInWishlist };
 };
 
@@ -336,11 +323,10 @@ export default function EthnicCollectionPage() {
   const [material, setMaterial] = useState("");
   const [sortBy, setSortBy] = useState("featured");
 
-  // UI States
+  // UI
   const [collapsed, setCollapsed] = useState(true);
   const scrollRef = useRef(0);
 
-  // Fetch products with better error handling
   useEffect(() => {
     let mounted = true;
 
@@ -349,84 +335,78 @@ export default function EthnicCollectionPage() {
         setLoading(true);
         setError(null);
 
-        const response = await fetch("/api/products?category=ethnic", {
-          cache: "no-store",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        // 🔁 Use your backend directly (more reliable in client components)
+        const url = `${API_BASE}/api/products?category=ethnic`;
+        const res = await fetch(url, { cache: "no-store" });
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+        if (!res.ok) {
+          throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
         }
 
-        const data = await response.json();
-
+        const raw = await res.json();
         if (!mounted) return;
 
-        if (!Array.isArray(data)) {
+        // Accept multiple shapes
+        const list: any[] = Array.isArray(raw)
+          ? raw
+          : raw?.items || raw?.products || raw?.data || [];
+
+        if (!Array.isArray(list)) {
           throw new Error("Invalid data format received from server");
         }
 
-        // Normalize and filter products
-        const normalizedProducts = data.map(normalizeProduct);
-        const ethnicProducts = normalizedProducts.filter(isEthnicOnly);
+        // Normalize everything
+        const normalized = list.map((x) => normalizeProduct(x));
 
-        setProductList(ethnicProducts);
+        // If backend already filtered by category, don’t over-filter.
+        // But if mixed content arrives, keep only “ethnic-looking” ones.
+        const maybeEthnic = normalized.filter(looksEthnic);
+        const finalList =
+          maybeEthnic.length > 0 ? maybeEthnic : normalized;
 
+        setProductList(finalList);
       } catch (err: any) {
         if (!mounted) return;
         console.error("Error fetching products:", err);
-        setError(err.message || "Failed to load products. Please try again.");
+        setError(err?.message || "Failed to load products. Please try again.");
       } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+        if (mounted) setLoading(false);
       }
     };
 
     fetchProducts();
-
     return () => {
       mounted = false;
     };
   }, []);
 
-  // Extract filter options and price range
-  const { allSizes, allColors, allMaterials, globalMinPrice, globalMaxPrice } = useMemo(() => {
-    const sizes = new Set<string>();
-    const colors = new Set<string>();
-    const materials = new Set<string>();
-    let minPrice = Infinity;
-    let maxPrice = 0;
+  // Extract filter options / ranges
+  const { allSizes, allColors, allMaterials, globalMinPrice, globalMaxPrice } =
+    useMemo(() => {
+      const sizes = new Set<string>();
+      const colors = new Set<string>();
+      const materials = new Set<string>();
+      let minPrice = Number.POSITIVE_INFINITY;
+      let maxPrice = 0;
 
-    productList.forEach(product => {
-      product.availableSizes?.forEach(size => {
-        if (size && size.trim()) sizes.add(size.trim());
+      productList.forEach((p) => {
+        (p.availableSizes || []).forEach((s) => s && sizes.add(s.trim()));
+        (p.availableColors || []).forEach((c) => c && colors.add(c.trim()));
+        if (p.material) materials.add(p.material.trim());
+        if (p.minPrice && p.minPrice < minPrice) minPrice = p.minPrice;
+        if (p.maxPrice && p.maxPrice > maxPrice) maxPrice = p.maxPrice;
       });
-      
-      product.availableColors?.forEach(color => {
-        if (color && color.trim()) colors.add(color.trim());
-      });
-      
-      if (product.material && product.material.trim()) {
-        materials.add(product.material.trim());
-      }
 
-      if (product.minPrice < minPrice) minPrice = product.minPrice;
-      if (product.maxPrice > maxPrice) maxPrice = product.maxPrice;
-    });
+      return {
+        allSizes: ["", ...Array.from(sizes).sort()],
+        allColors: ["", ...Array.from(colors).sort()],
+        allMaterials: ["", ...Array.from(materials).sort()],
+        globalMinPrice: Number.isFinite(minPrice) ? minPrice : 0,
+        globalMaxPrice: maxPrice > 0 ? maxPrice : 10000,
+      };
+    }, [productList]);
 
-    return {
-      allSizes: ["", ...Array.from(sizes).sort()],
-      allColors: ["", ...Array.from(colors).sort()],
-      allMaterials: ["", ...Array.from(materials).sort()],
-      globalMinPrice: Number.isFinite(minPrice) ? minPrice : 0,
-      globalMaxPrice: Number.isFinite(maxPrice) ? maxPrice : 10000,
-    };
-  }, [productList]);
-
-  // Initialize price range when products load
+  // Initialize price range
   useEffect(() => {
     if (productList.length > 0) {
       setPriceMin(globalMinPrice);
@@ -434,54 +414,41 @@ export default function EthnicCollectionPage() {
     }
   }, [productList.length, globalMinPrice, globalMaxPrice]);
 
-  // Filter and sort products
+  // Filter & sort
   const filteredAndSortedProducts = useMemo(() => {
-    let filtered = productList.filter(product => {
-      // Price filter
-      const priceOk = product.minPrice <= priceMax && product.maxPrice >= priceMin;
+    let filtered = productList.filter((p) => {
+      // price overlap test
+      const priceOk = (p.minPrice ?? 0) <= priceMax && (p.maxPrice ?? 0) >= priceMin;
       if (!priceOk) return false;
 
-      // Size filter
-      if (size && !product.availableSizes.some(s => s.toLowerCase() === size.toLowerCase())) {
+      if (size && !(p.availableSizes || []).some((s) => s.toLowerCase() === size.toLowerCase()))
         return false;
-      }
 
-      // Color filter (case insensitive)
-      if (color && !product.availableColors.some(c => 
-        c.toLowerCase().includes(color.toLowerCase())
-      )) {
+      if (color && !(p.availableColors || []).some((c) => c.toLowerCase().includes(color.toLowerCase())))
         return false;
-      }
 
-      // Material filter (case insensitive)
-      if (material && !product.material.toLowerCase().includes(material.toLowerCase())) {
+      if (material && !(p.material || "").toLowerCase().includes(material.toLowerCase()))
         return false;
-      }
 
       return true;
     });
 
-    // Sort products
     switch (sortBy) {
       case "price-low":
-        filtered.sort((a, b) => a.minPrice - b.minPrice);
+        filtered.sort((a, b) => (a.minPrice ?? 0) - (b.minPrice ?? 0));
         break;
       case "price-high":
-        filtered.sort((a, b) => b.maxPrice - a.maxPrice);
+        filtered.sort((a, b) => (b.maxPrice ?? 0) - (a.maxPrice ?? 0));
         break;
       case "name":
         filtered.sort((a, b) => a.product_name.localeCompare(b.product_name));
         break;
       case "newest":
-        // Assuming newer products have higher IDs (you might want to add a date field)
         filtered.sort((a, b) => b._id.localeCompare(a._id));
         break;
-      case "featured":
       default:
-        // Default sorting - you can implement your featured logic
         break;
     }
-
     return filtered;
   }, [productList, priceMin, priceMax, size, color, material, sortBy]);
 
@@ -494,11 +461,14 @@ export default function EthnicCollectionPage() {
     setSortBy("featured");
   };
 
-  const hasActiveFilters = size || color || material || 
-    priceMin !== globalMinPrice || 
+  const hasActiveFilters =
+    !!size ||
+    !!color ||
+    !!material ||
+    priceMin !== globalMinPrice ||
     priceMax !== globalMaxPrice;
 
-  /* ---------------- UI Components ---------------- */
+  /* ---------------- UI ---------------- */
 
   if (loading) {
     return (
@@ -528,7 +498,7 @@ export default function EthnicCollectionPage() {
               Try Again
             </button>
             <button
-              onClick={() => window.location.href = '/'}
+              onClick={() => (window.location.href = "/")}
               className="border border-gray-300 text-gray-700 px-5 py-2 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Go Home
@@ -541,23 +511,22 @@ export default function EthnicCollectionPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Hero Section */}
+      {/* Hero */}
       <div className="bg-gradient-to-b from-rose-50/70 via-white to-white border-b border-gray-100">
         <div className="container mx-auto px-4 py-8 md:py-12 text-center">
           <h1 className="text-3xl md:text-5xl font-light text-gray-900 mb-3">
             Ethnic Collection
           </h1>
           <p className="text-base md:text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
-            Traditional elegance meets contemporary minimalism. Handcrafted pieces from Kerala 
+            Traditional elegance meets contemporary minimalism. Handcrafted pieces from Kerala
             featuring authentic designs and premium fabrics.
           </p>
         </div>
       </div>
 
-      {/* Filter and Sort Bar */}
+      {/* Filter & Sort Bar */}
       <div className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
         <div className="container mx-auto px-4">
-          {/* Filter Header */}
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-3">
               <SlidersHorizontal className="w-5 h-5 text-gray-700" />
@@ -568,9 +537,8 @@ export default function EthnicCollectionPage() {
                 </span>
               )}
             </div>
-            
+
             <div className="flex items-center gap-3">
-              {/* Sort Dropdown */}
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
@@ -584,31 +552,24 @@ export default function EthnicCollectionPage() {
               </select>
 
               <button
-                onClick={() => setCollapsed(!collapsed)}
+                onClick={() => setCollapsed((v) => !v)}
                 className="p-2 rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors"
                 aria-label={collapsed ? "Show filters" : "Hide filters"}
               >
-                {collapsed ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronUp className="w-4 h-4" />
-                )}
+                {collapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
-          {/* Expandable Filter Panel */}
           <div
             className={`overflow-hidden transition-all duration-300 ease-in-out ${
               collapsed ? "max-h-0 opacity-0" : "max-h-96 opacity-100 pb-6"
             }`}
           >
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Price Range */}
+              {/* Price */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Price Range (₹)
-                </label>
+                <label className="block text-sm font-medium text-gray-700">Price Range (₹)</label>
                 <div className="flex gap-2">
                   <input
                     type="number"
@@ -631,58 +592,52 @@ export default function EthnicCollectionPage() {
                 </div>
               </div>
 
-              {/* Size Filter */}
+              {/* Size */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Size
-                </label>
+                <label className="block text-sm font-medium text-gray-700">Size</label>
                 <select
                   value={size}
                   onChange={(e) => setSize(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-black focus:border-transparent"
                 >
                   <option value="">All Sizes</option>
-                  {allSizes.filter(Boolean).map((sizeOption) => (
-                    <option key={sizeOption} value={sizeOption}>
-                      {sizeOption}
+                  {allSizes.filter(Boolean).map((s) => (
+                    <option key={s} value={s}>
+                      {s}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Color Filter */}
+              {/* Color */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Color
-                </label>
+                <label className="block text-sm font-medium text-gray-700">Color</label>
                 <select
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-black focus:border-transparent"
                 >
                   <option value="">All Colors</option>
-                  {allColors.filter(Boolean).map((colorOption) => (
-                    <option key={colorOption} value={colorOption}>
-                      {colorOption}
+                  {allColors.filter(Boolean).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Material Filter */}
+              {/* Material */}
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Material
-                </label>
+                <label className="block text-sm font-medium text-gray-700">Material</label>
                 <select
                   value={material}
                   onChange={(e) => setMaterial(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-black focus:border-transparent"
                 >
                   <option value="">All Materials</option>
-                  {allMaterials.filter(Boolean).map((materialOption) => (
-                    <option key={materialOption} value={materialOption}>
-                      {materialOption}
+                  {allMaterials.filter(Boolean).map((m) => (
+                    <option key={m} value={m}>
+                      {m}
                     </option>
                   ))}
                 </select>
@@ -703,39 +658,41 @@ export default function EthnicCollectionPage() {
         </div>
       </div>
 
-      {/* Products Grid */}
+      {/* Grid */}
       <div className="container mx-auto px-4 py-8">
-        {/* Results Count */}
         <div className="flex justify-between items-center mb-6">
           <p className="text-sm text-gray-600">
             Showing {filteredAndSortedProducts.length} of {productList.length} products
           </p>
           {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              className="text-sm text-black hover:text-gray-700 underline"
-            >
+            <button onClick={clearFilters} className="text-sm text-black hover:text-gray-700 underline">
               Clear filters
             </button>
           )}
         </div>
 
-        {/* Products Grid */}
         {filteredAndSortedProducts.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
             {filteredAndSortedProducts.map((product) => {
               const slug = makeSlug(product);
-              const firstVariant = product.variants.find(v => v.stock > 0) || product.variants[0];
-              const queryParams = firstVariant 
-                ? `?color=${encodeURIComponent(firstVariant.colour)}&size=${encodeURIComponent(firstVariant.size)}`
+              const firstVariant =
+                product.variants.find((v) => v.stock > 0) || product.variants[0];
+              const queryParams = firstVariant
+                ? `?color=${encodeURIComponent(firstVariant.colour)}&size=${encodeURIComponent(
+                    firstVariant.size
+                  )}`
                 : "";
 
-              // Calculate discount percentage
-              const salePrice = Math.round(product.minPrice);
+              const salePrice = Math.round(product.minPrice || 0);
               const originalPrice = Math.round(
-                product.maxPrice > salePrice ? product.maxPrice : salePrice * 1.3
+                product.maxPrice && product.maxPrice > salePrice
+                  ? product.maxPrice
+                  : salePrice > 0
+                  ? salePrice * 1.3
+                  : 0
               );
-              const discountPercent = Math.round(((originalPrice - salePrice) / originalPrice) * 100);
+              const discountPercent =
+                originalPrice > 0 ? Math.round(((originalPrice - salePrice) / originalPrice) * 100) : 0;
 
               const isWished = isInWishlist(product._id);
 
@@ -746,7 +703,6 @@ export default function EthnicCollectionPage() {
                 >
                   <Link href={`/Ethnic-Wears/${slug}${queryParams}`}>
                     <div className="relative aspect-[3/4] overflow-hidden">
-                      {/* Discount Badge */}
                       {discountPercent > 0 && (
                         <div className="absolute top-3 left-3 z-10">
                           <span className="px-2 py-1 text-xs font-bold uppercase tracking-wide bg-green-600 text-white rounded-md shadow-lg">
@@ -755,7 +711,6 @@ export default function EthnicCollectionPage() {
                         </div>
                       )}
 
-                      {/* Out of Stock Overlay */}
                       {product.totalStock === 0 && (
                         <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center">
                           <span className="bg-black text-white px-3 py-2 rounded-lg font-medium text-sm">
@@ -764,16 +719,14 @@ export default function EthnicCollectionPage() {
                         </div>
                       )}
 
-                      {/* Product Image */}
                       <SafeImage
-                        src={product.images[0]}
+                        src={product.images?.[0]}
                         alt={product.product_name}
                         fill
                         sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
                         className="object-cover group-hover:scale-105 transition-transform duration-500"
                       />
 
-                      {/* Options Available Badge */}
                       {product.hasMultipleOptions && product.totalStock > 0 && (
                         <div className="absolute bottom-3 right-3 bg-black/90 text-white px-2 py-1 rounded text-xs backdrop-blur">
                           Options Available
@@ -782,7 +735,6 @@ export default function EthnicCollectionPage() {
                     </div>
                   </Link>
 
-                  {/* Product Info */}
                   <div className="p-4">
                     <Link href={`/Ethnic-Wears/${slug}${queryParams}`}>
                       <h3 className="font-medium text-gray-900 text-sm mb-2 leading-tight line-clamp-2 group-hover:text-black transition-colors">
@@ -790,24 +742,18 @@ export default function EthnicCollectionPage() {
                       </h3>
                     </Link>
 
-                    {/* Price */}
                     <div className="flex items-baseline gap-2 mb-3">
-                      {discountPercent > 0 && (
-                        <span className="text-xs text-gray-500 line-through">
-                          ₹{originalPrice}
-                        </span>
+                      {discountPercent > 0 && originalPrice > 0 && (
+                        <span className="text-xs text-gray-500 line-through">₹{originalPrice}</span>
                       )}
                       <span className="text-lg font-bold text-gray-900">
-                        ₹{salePrice}
+                        {salePrice > 0 ? `₹${salePrice}` : "Price on request"}
                       </span>
                       {discountPercent > 0 && (
-                        <span className="text-xs text-green-600 font-medium">
-                          Save {discountPercent}%
-                        </span>
+                        <span className="text-xs text-green-600 font-medium">Save {discountPercent}%</span>
                       )}
                     </div>
 
-                    {/* Actions */}
                     <div className="flex gap-2">
                       <Link
                         href={`/Ethnic-Wears/${slug}${queryParams}`}
@@ -815,7 +761,7 @@ export default function EthnicCollectionPage() {
                       >
                         {product.hasMultipleOptions ? "VIEW OPTIONS" : "VIEW PRODUCT"}
                       </Link>
-                      
+
                       <button
                         onClick={(e) => {
                           e.preventDefault();
@@ -826,9 +772,7 @@ export default function EthnicCollectionPage() {
                       >
                         <Heart
                           className={`w-4 h-4 transition-colors ${
-                            isWished 
-                              ? "text-red-500 fill-current" 
-                              : "text-gray-600"
+                            isWished ? "text-red-500 fill-current" : "text-gray-600"
                           }`}
                         />
                       </button>
@@ -839,16 +783,14 @@ export default function EthnicCollectionPage() {
             })}
           </div>
         ) : (
-          // Empty State
           <div className="text-center py-16">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <X className="w-10 h-10 text-gray-400" />
             </div>
-            <h3 className="text-xl font-light text-gray-900 mb-2">
-              No Products Found
-            </h3>
+            <h3 className="text-xl font-light text-gray-900 mb-2">No Products Found</h3>
             <p className="text-gray-600 mb-6 max-w-md mx-auto">
-              We couldn't find any ethnic products matching your filters. Try adjusting your search criteria or browse our full collection.
+              We couldn't find any ethnic products matching your filters. Try adjusting your search criteria or
+              browse our full collection.
             </p>
             <button
               onClick={clearFilters}
@@ -871,7 +813,7 @@ export default function EthnicCollectionPage() {
               <h4 className="font-semibold text-gray-900 mb-2">Free Shipping</h4>
               <p className="text-sm text-gray-600">Free delivery on orders above ₹2000</p>
             </div>
-            
+
             <div className="text-center">
               <div className="w-14 h-14 bg-black rounded-full flex items-center justify-center mx-auto mb-4">
                 <Shield className="w-6 h-6 text-white" />
@@ -879,7 +821,7 @@ export default function EthnicCollectionPage() {
               <h4 className="font-semibold text-gray-900 mb-2">Secure Payment</h4>
               <p className="text-sm text-gray-600">100% secure and protected payments</p>
             </div>
-            
+
             <div className="text-center">
               <div className="w-14 h-14 bg-black rounded-full flex items-center justify-center mx-auto mb-4">
                 <RotateCcw className="w-6 h-6 text-white" />
@@ -887,7 +829,7 @@ export default function EthnicCollectionPage() {
               <h4 className="font-semibold text-gray-900 mb-2">No Returns</h4>
               <p className="text-sm text-gray-600">No returns or exchanges available</p>
             </div>
-            
+
             <div className="text-center">
               <div className="w-14 h-14 bg-black rounded-full flex items-center justify-center mx-auto mb-4">
                 <Star className="w-6 h-6 text-white" />

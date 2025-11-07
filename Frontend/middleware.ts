@@ -1,4 +1,4 @@
-// middleware.ts (root level)
+// middleware.ts
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
@@ -13,13 +13,13 @@ export function middleware(request: NextRequest) {
   const protectedRoutes = ['/account', '/checkout', '/profile']
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route))
 
-  // Auth routes
-  const authRoutes = ['/login', '/register']
+  // Auth routes (under /auth now)
+  const authRoutes = ['/auth/login', '/auth/register']
   const isAuthRoute = authRoutes.includes(pathname)
 
   // Redirect to login if accessing protected route without auth
   if (isProtectedRoute && !token) {
-    const loginUrl = new URL('/login', request.url)
+    const loginUrl = new URL('/auth/login', request.url) // ✅ updated path
     loginUrl.searchParams.set('redirect', pathname)
     return NextResponse.redirect(loginUrl)
   }
@@ -35,9 +35,9 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/account/:path*',
-    '/checkout/:path*', 
+    '/checkout/:path*',
     '/profile/:path*',
-    '/login',
-    '/register'
+    '/auth/login',
+    '/auth/register'
   ]
 }

@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    /* === Path Aliases === */
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"],
@@ -9,36 +8,22 @@
       "@/utils/*": ["./utils/*"],
       "@/lib/*": ["./lib/*"]
     },
-
-    /* === Module & Target === */
     "target": "es2022",
     "module": "esnext",
     "moduleResolution": "bundler",
-
-    /* === JSX & React === */
     "jsx": "preserve",
-    "types": ["node", "react", "react-dom", "next", "next/types/global"],
-
-    /* === Libraries === */
+    "types": ["node", "react", "react-dom", "next"],
     "lib": ["dom", "dom.iterable", "esnext"],
-
-    /* === Strictness & Safety === */
     "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "esModuleInterop": true,
-
-    /* === File Handling === */
     "resolveJsonModule": true,
     "allowJs": true,
     "noEmit": true,
     "incremental": true,
-
-    /* === Next.js Plugin === */
     "plugins": [{ "name": "next" }],
-
-    /* Help TS keep a single cache path on Windows */
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
   "include": [
@@ -46,6 +31,7 @@
     "components/**/*",
     "context/**/*",
     "utils/**/*",
+    "lib/**/*",
     "**/*.ts",
     "**/*.tsx",
     "next-env.d.ts",

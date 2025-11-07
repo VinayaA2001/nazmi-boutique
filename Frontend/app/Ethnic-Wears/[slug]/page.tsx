@@ -1,3 +1,4 @@
+// app/Ethnic-Wears/[slug]/page.tsx
 "use client";
 
 import type React from "react";
@@ -22,7 +23,7 @@ import {
 import ProductCardClient, { type CardProduct } from "@/components/commerce/ProductCardClient";
 
 /* ========= Config ========= */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || ""; // prefer relative /api in app; external only if set
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
 
 // Shipping rules
@@ -72,8 +73,6 @@ type ShippingInfo = {
 type PaymentMethod = "upi" | "card" | "netbanking";
 
 /* ========= Utils ========= */
-const MAX_OPTIONS = 10;
-
 const imgUrl = (p?: string | null) => {
   if (!p || typeof p !== "string") return "/images/placeholder.jpg";
   if (p.startsWith("http") || p.startsWith("/")) return p;
@@ -83,10 +82,7 @@ const imgUrl = (p?: string | null) => {
 const makeSlug = (p: Product) => {
   const base = p.slug || p.product_name || `${p.material || ""}-${p.category || ""}`.trim();
   const code = p.product_code ? `-${p.product_code}` : "";
-  return (base + code)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
+  return (base + code).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
 };
 
 const displayName = (p: Product) => p.product_name || `${p.material} ${p.category}`;
@@ -94,18 +90,16 @@ const inr = (n: number | string) => `₹${Number(n || 0).toLocaleString("en-IN")
 const norm = (s?: string) => (s ?? "").trim().toLowerCase();
 const same = (a?: string, b?: string) => norm(a) === norm(b);
 
-// --- Canonical key helpers for robust dedupe ---
+// Dedupe helpers
 const firstImage = (p: Product) =>
   Array.isArray(p.images) && p.images.length ? p.images[0] : "";
 
-// Extract Cloudinary public_id from a URL, e.g.
-// https://res.cloudinary.com/.../upload/v1761222954/cream5_nrsopq.jpg -> cream5_nrsopq
 const cloudinaryPublicId = (url: string) => {
   try {
-    const path = new URL(url).pathname;                 // /dq5x.../upload/v176.../cream5_nrsopq.jpg
+    const path = new URL(url).pathname;
     const parts = path.split("/").filter(Boolean);
-    const last = parts[parts.length - 1];               // cream5_nrsopq.jpg
-    return last.replace(/\.[a-z0-9]+$/i, "");           // cream5_nrsopq
+    const last = parts[parts.length - 1];
+    return last.replace(/\.[a-z0-9]+$/i, "");
   } catch {
     const last = url.split("/").filter(Boolean).pop() || "";
     return last.replace(/\.[a-z0-9]+$/i, "");
@@ -114,12 +108,11 @@ const cloudinaryPublicId = (url: string) => {
 
 const canonicalKey = (p: Product) => {
   const name = norm(p.product_name);
-  const mat  = norm(p.material);
+  const mat = norm(p.material);
   const imgK = cloudinaryPublicId(firstImage(p));
   return `${name}__${mat}__${imgK}`;
 };
 
-// One-time shuffle helper (non-mutating)
 function shuffleInPlace<T>(arr: T[]): T[] {
   const a = [...arr];
   const rand =
@@ -139,7 +132,42 @@ declare global {
   }
 }
 
-/* ========= Related Products (CARD GRID under product) ========= */
+/* ========= Small fetch helpers (with timeout + fallbacks) ========= */
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, ms = 9000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postJson(url: string, body: any) {
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  let json: any = {};
+  try { json = await res.json(); } catch { json = {}; }
+  if (!res.ok) {
+    const msg = json?.error || json?.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return json;
+}
+
+function normalizeRzpOrder(data: any): { id: string; amount: number } {
+  const src = data?.order || data?.data || data;
+  const id = src?.id || src?.order_id || data?.id || data?.razorpay_order_id || data?.order_id;
+  const amount = Number(src?.amount ?? data?.amount);
+  if (!id) throw new Error("Razorpay order id missing in response.");
+  if (!Number.isFinite(amount)) throw new Error("Razorpay amount missing in response.");
+  return { id, amount };
+}
+
+/* ========= Related Products ========= */
 function RelatedProductsClient({
   currentId,
   currentSlug,
@@ -163,7 +191,6 @@ function RelatedProductsClient({
       setLoading(true);
       try {
         const base = API_BASE || "";
-        // Fetch extra, then filter & dedupe locally
         const url = `${base}/api/products?limit=${limit + 32}`;
         const r = await fetch(url, { cache: "no-store" });
         if (!r.ok) throw new Error("failed");
@@ -174,17 +201,14 @@ function RelatedProductsClient({
           ? data
           : [];
 
-        // 1) same category
         const sameCategory = list.filter(
           (p) => p && p.category && p._id && same(p.category, category)
         );
 
-        // 2) exclude current product by id AND by slug
         const notCurrent = sameCategory.filter(
           (p) => String(p._id) !== String(currentId) && !same(p.slug, currentSlug)
         );
 
-        // 3) de-duplicate using canonicalKey (name + material + first image id)
         const seen = new Set<string>();
         const unique: Product[] = [];
         for (const p of notCurrent) {
@@ -194,7 +218,6 @@ function RelatedProductsClient({
           unique.push(p);
         }
 
-        // 4) SHUFFLE, then map → CardProduct and slice
         const shuffled = shuffleInPlace(unique);
         const mapped: CardProduct[] = shuffled.slice(0, limit).map((p) => ({
           _id: String(p._id),
@@ -230,7 +253,6 @@ function RelatedProductsClient({
           </div>
         </div>
 
-        {/* 🔥 Card grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6">
           {rows.map((p) => (
             <ProductCardClient key={p._id} p={p} />
@@ -243,7 +265,6 @@ function RelatedProductsClient({
 
 /* ========= Page Component ========= */
 export default function ProductDetailPage() {
-  // Be robust to array type in newer Next types
   const params = useParams();
   const slugParamRaw = ((): string => {
     const v: unknown = (params as any)?.slug;
@@ -284,12 +305,7 @@ export default function ProductDetailPage() {
     country: "India",
   });
 
-  // NEW: payment method selection
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("upi");
-
-  /* Show-all toggles for large option sets */
-  const [showAllColors, setShowAllColors] = useState(false);
-  const [showAllSizes, setShowAllSizes] = useState(false);
 
   /* ========= Fetch Product ========= */
   useEffect(() => {
@@ -299,7 +315,6 @@ export default function ProductDetailPage() {
       try {
         const slugParam = decodeURIComponent(String(slugParamRaw || "")).toLowerCase();
 
-        // Try API: /api/products/[slug]
         const one = await fetch(`/api/products/${slugParam}`, { cache: "no-store" });
         if (one.ok) {
           const p: Product = await one.json();
@@ -312,7 +327,6 @@ export default function ProductDetailPage() {
           return;
         }
 
-        // Fallback: load all and match locally
         const res = await fetch("/api/products", { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to load products");
         const list: Product[] = await res.json();
@@ -385,11 +399,9 @@ export default function ProductDetailPage() {
     const c = color || firstInStock?.colour || colors[0] || "";
     const s = size || firstInStock?.size || sizes[0] || "";
 
-    // Only update state if changed to avoid extra renders
     if (c && !same(c, color)) setColor(c);
     if (s && !same(s, size)) setSize(s);
 
-    // Sync URL search params only if needed (prevents replace loops)
     const q = new URLSearchParams(search.toString());
     let changed = false;
     if (c && q.get("color") !== c) {
@@ -423,7 +435,6 @@ export default function ProductDetailPage() {
     return product.images;
   }, [product, variant, color]);
 
-  // Reset visible index when gallery changes
   const galleryKey = useMemo(() => gallery.join("|"), [gallery]);
   useEffect(() => setImgIndex(0), [galleryKey]);
 
@@ -436,9 +447,8 @@ export default function ProductDetailPage() {
   const shippingFee = subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
   const grandTotal = subtotal + shippingFee;
 
-  /* Render-limited lists with toggles */
-  const colorsAvail = showAllColors ? fullColors : fullColors.slice(0, MAX_OPTIONS);
-  const sizesAvail = showAllSizes ? fullSizes : fullSizes.slice(0, MAX_OPTIONS);
+  const colorsAvail = fullColors; // show all (toggle can be re-added)
+  const sizesAvail = fullSizes;
 
   const pickColor = (c: string) => {
     if (!product) return;
@@ -558,7 +568,7 @@ export default function ProductDetailPage() {
     setTimeout(() => setShowCartToast(false), 2500);
   };
 
-  /* ========= Lightbox / Zoom state ========= */
+  /* ========= Lightbox / Zoom ========= */
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -603,7 +613,6 @@ export default function ProductDetailPage() {
   const onMouseUp = () => setPanning(false);
   const onMouseLeave = () => setPanning(false);
 
-  // Basic touch support
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart: React.TouchEventHandler = (e) => {
     if (zoom === 1) return;
@@ -781,14 +790,6 @@ export default function ProductDetailPage() {
                     );
                   })}
                 </div>
-                {fullColors.length > MAX_OPTIONS && (
-                  <button
-                    onClick={() => setShowAllColors((s) => !s)}
-                    className="mt-2 text-xs underline text-gray-600 hover:text-gray-900"
-                  >
-                    {showAllColors ? "Show fewer colors" : `Show all colors (+${fullColors.length - MAX_OPTIONS})`}
-                  </button>
-                )}
               </div>
             )}
 
@@ -817,14 +818,6 @@ export default function ProductDetailPage() {
                     );
                   })}
                 </div>
-                {fullSizes.length > MAX_OPTIONS && (
-                  <button
-                    onClick={() => setShowAllSizes((s) => !s)}
-                    className="mt-2 text-xs underline text-gray-600 hover:text-gray-900"
-                  >
-                    {showAllSizes ? "Show fewer sizes" : `Show all sizes (+${fullSizes.length - MAX_OPTIONS})`}
-                  </button>
-                )}
               </div>
             )}
 
@@ -880,7 +873,7 @@ export default function ProductDetailPage() {
         </div>
       </div>
 
-      {/* ✅ Related products grid */}
+      {/* Related products */}
       <RelatedProductsClient
         currentId={product._id}
         currentSlug={product.slug || makeSlug(product)}
@@ -1008,14 +1001,7 @@ export default function ProductDetailPage() {
                         if (!product || !variant) return;
 
                         const required: (keyof ShippingInfo)[] = [
-                          "name",
-                          "email",
-                          "phone",
-                          "address1",
-                          "city",
-                          "state",
-                          "pincode",
-                          "country",
+                          "name","email","phone","address1","city","state","pincode","country",
                         ];
                         for (const k of required) {
                           const v = shipping[k];
@@ -1028,7 +1014,11 @@ export default function ProductDetailPage() {
                           alert(`Only ${variant.stock} available.`);
                           return;
                         }
-                        
+
+                        if (!RZP_KEY_ID) {
+                          alert("Payment configuration missing: NEXT_PUBLIC_RAZORPAY_KEY_ID");
+                          return;
+                        }
 
                         setOrderProcessing(true);
                         try {
@@ -1065,26 +1055,42 @@ export default function ProductDetailPage() {
                             },
                             body: JSON.stringify(orderBody),
                           });
+
+                          const orderJson = await createOrderRes.json().catch(() => ({}));
                           if (!createOrderRes.ok) {
-                            const err = await createOrderRes.json().catch(() => ({}));
-                            throw new Error(err.message || `Order create failed (${createOrderRes.status})`);
+                            throw new Error(orderJson.error || orderJson.message || `Order create failed (${createOrderRes.status})`);
                           }
-                          const orderJson = await createOrderRes.json();
                           const internalOrderId = orderJson?.order_id || orderJson?._id || orderJson?.id;
+                          if (!internalOrderId) throw new Error("No order_id returned from server");
 
-                          // 2) Create Razorpay order in backend
-                          const payRes = await fetch("/api/payments/razorpay/create-order", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ amount: Math.round(grandTotal * 100), currency: "INR", receipt: String(internalOrderId) }),
-                          });
-                          if (!payRes.ok) {
-                            const err = await payRes.json().catch(() => ({}));
-                            throw new Error(err.message || `Payment create failed (${payRes.status})`);
+                          // 2) Create Razorpay order (proxy first, then backend fallback)
+                          let rzpOrder: { id: string; amount: number };
+                          try {
+                            // (a) proxy expects { order_id }
+                            const proxyJson = await postJson("/api/payments/razorpay/create-order", {
+                              order_id: String(internalOrderId),
+                            });
+                            rzpOrder = normalizeRzpOrder(proxyJson);
+                          } catch (e1: any) {
+                            // (b) backend: try with minimal payload
+                            try {
+                              const direct1 = await postJson(`${API_BASE}/api/payments/create-order`, {
+                                order_id: String(internalOrderId),
+                              });
+                              rzpOrder = normalizeRzpOrder(direct1);
+                            } catch (e2: any) {
+                              // (c) backend: try full payload (amount/currency/receipt + order_id)
+                              const direct2 = await postJson(`${API_BASE}/api/payments/create-order`, {
+                                amount: Math.round(grandTotal * 100),
+                                currency: "INR",
+                                receipt: String(internalOrderId),
+                                order_id: String(internalOrderId),
+                              });
+                              rzpOrder = normalizeRzpOrder(direct2);
+                            }
                           }
-                          const payJson = await payRes.json();
-                          const rzpOrderId = payJson?.order_id || payJson?.id;
 
+                          // 3) Load Razorpay SDK if needed
                           const ok = await (async () => {
                             if (typeof window === "undefined") return false;
                             if (window.Razorpay) return true;
@@ -1099,19 +1105,48 @@ export default function ProductDetailPage() {
                           })();
                           if (!ok || !window.Razorpay) throw new Error("Failed to load Razorpay SDK");
 
+                          // 4) Open Razorpay
                           const rzp = new (window as any).Razorpay({
                             key: RZP_KEY_ID,
-                            order_id: rzpOrderId,
-                            amount: Math.round(grandTotal * 100),
+                            order_id: rzpOrder.id,
+                            amount: rzpOrder.amount,
                             currency: "INR",
                             name: "Nazmi Boutique",
                             description: displayName(product),
                             image: "/images/logo.png",
-                            prefill: { name: shipping.name, email: shipping.email, contact: shipping.phone },
-                            notes: { internal_order_id: String(internalOrderId), product_code: product.product_code || "" },
+                            prefill: {
+                              name: shipping.name,
+                              email: shipping.email,
+                              contact: shipping.phone,
+                            },
+                            notes: {
+                              internal_order_id: String(internalOrderId),
+                              product_code: product.product_code || "",
+                            },
                             theme: { color: "#000000" },
                             handler: async (response: any) => {
                               try {
+                                // 5) Verify signature (proxy first → backend fallback)
+                                let verified = false;
+                                try {
+                                  const v1 = await postJson("/api/payments/razorpay/verify", {
+                                    razorpay_payment_id: response.razorpay_payment_id,
+                                    razorpay_order_id: response.razorpay_order_id,
+                                    razorpay_signature: response.razorpay_signature,
+                                  });
+                                  verified = !!(v1?.success ?? v1?.verified ?? v1?.ok);
+                                } catch {
+                                  const v2 = await postJson(`${API_BASE}/api/payments/verify-payment`, {
+                                    razorpay_payment_id: response.razorpay_payment_id,
+                                    razorpay_order_id: response.razorpay_order_id,
+                                    razorpay_signature: response.razorpay_signature,
+                                    order_id: internalOrderId,
+                                  });
+                                  verified = !!(v2?.success ?? v2?.verified ?? v2?.ok);
+                                }
+                                if (!verified) throw new Error("Payment verification failed");
+
+                                // Optional: mark paid in your orders API
                                 await fetch(`/api/orders/${internalOrderId}/paid`, {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
@@ -1121,8 +1156,12 @@ export default function ProductDetailPage() {
                                     razorpay_order_id: response.razorpay_order_id,
                                     razorpay_signature: response.razorpay_signature,
                                   }),
-                                });
-                              } catch {}
+                                }).catch(() => {});
+                              } catch (err: any) {
+                                alert(err?.message || "Payment verification failed");
+                                setOrderProcessing(false);
+                                return;
+                              }
 
                               setOrderSuccess(true);
                               setTimeout(() => {
@@ -1131,6 +1170,15 @@ export default function ProductDetailPage() {
                               }, 1600);
                             },
                             modal: { ondismiss: () => { setOrderProcessing(false); } },
+                          });
+
+                          rzp.on("payment.failed", (resp: any) => {
+                            const msg =
+                              resp?.error?.description ||
+                              resp?.error?.reason ||
+                              "Payment failed. Please try again.";
+                            alert(`Payment Failed: ${msg}`);
+                            setOrderProcessing(false);
                           });
 
                           rzp.open();
@@ -1219,7 +1267,6 @@ export default function ProductDetailPage() {
               style={{ cursor: zoom > 1 ? (panning ? ("grabbing" as const) : "grab") : "zoom-in" }}
               onDoubleClick={() => (zoom === 1 ? zoomIn() : resetZoom())}
             >
-              {/* wrapper to apply transform */}
               <div
                 style={{
                   transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,

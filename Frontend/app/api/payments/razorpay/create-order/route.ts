@@ -1,54 +1,40 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+export const dynamic = "force-dynamic"; // ensure no static caching
 
-export async function POST(req: Request) {
+const API_BASE =
+  process.env.BACKEND_API_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:5000";
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    
-    console.log('🔄 Proxying Razorpay order creation to:', `${API_BASE}/api/payments/razorpay/create-order`);
-    
-    const response = await fetch(`${API_BASE}/api/payments/razorpay/create-order`, {
+    const body = await req.json().catch(() => ({}));
+    console.log("[proxy] ->", `${API_BASE}/api/payments/razorpay/create-order`, body);
+
+    const res = await fetch(`${API_BASE}/api/payments/razorpay/create-order`, {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), // forward exactly
+      cache: "no-store",
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Backend Razorpay order creation failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        error: errorText
-      });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error("❌ Backend create-order failed", res.status, res.statusText, data);
       return NextResponse.json(
-        { error: `Backend error: ${response.status} - ${response.statusText}` },
-        { status: response.status }
+        { error: data?.error || data?.message || "Create order failed" },
+        { status: res.status }
       );
     }
 
-    const data = await response.json();
-    console.log('✅ Razorpay order created successfully:', data);
-    
+    // pass through the backend’s shape (id/razorpay_order_id/amount/etc.)
     return NextResponse.json(data, { status: 200 });
-  } catch (error: any) {
-    console.error("❌ Proxy error:", error);
+  } catch (err: any) {
+    console.error("❌ Proxy error (create-order):", err?.message || err);
     return NextResponse.json(
-      { error: "Failed to create Razorpay order: " + error.message },
-      { status: 500 }
+      { error: "Proxy error contacting payment backend" },
+      { status: 502 }
     );
   }
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
 }

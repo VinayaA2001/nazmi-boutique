@@ -1,60 +1,122 @@
+// app/(auth)/forgot-password/page.tsx  (or your current path)
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
+const RAW_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE = RAW_API.replace(/\/+$/, ""); // trim trailing slash
+
+type Health = {
+  status: "healthy" | "unhealthy" | string;
+  service?: string;
+  database?: "connected" | "disconnected";
+  razorpay?: "configured" | "not configured";
+  timestamp?: string;
+};
 
 export default function ForgotPasswordClient() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const router = useRouter();
+  const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
+  const abortRef = useRef<AbortController | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  /* ---------- Health check (runs once) ---------- */
+  useEffect(() => {
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/health`, { signal: ac.signal, cache: "no-store" });
+        if (r.ok) {
+          const h = (await r.json()) as Health;
+          setBackendStatus(h?.status === "healthy" ? "online" : "offline");
+        } else {
+          setBackendStatus("offline");
+        }
+      } catch {
+        setBackendStatus("offline");
+      }
+    })();
+
+    return () => ac.abort();
+  }, []);
+
+  const emailValid = useMemo(() => /\S+@\S+\.\S+/.test(email.trim()), [email]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    
-    if (!email) {
+    if (loading) return;
+
+    setMessage("");
+    setError("");
+
+    if (!email.trim()) {
       setError("Email is required");
       return;
     }
-
-    if (!/\S+@\S+\.\S+/.test(email)) {
+    if (!emailValid) {
       setError("Please enter a valid email address");
       return;
     }
 
     setLoading(true);
-    setError("");
-    setMessage("");
+    const ac = new AbortController();
+    abortRef.current = ac;
 
     try {
-      const response = await fetch(`${API_BASE}/api/auth/forgot-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
+      if (backendStatus === "offline") {
+        // Demo fallback if backend is down
+        await new Promise((res) => setTimeout(res, 600));
+        setMessage("Demo mode: If an account exists, a reset link would be sent.");
+        setEmail("");
+        return;
+      }
+
+      const resp = await fetch(`/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+        signal: ac.signal,
       });
 
-      const data = await response.json();
+      const data = await resp.json().catch(() => ({} as any));
 
-      if (response.ok) {
-        setMessage(data.message || "Password reset instructions have been sent to your email.");
+      // Flask code returns 200 with message regardless of user existence (safe)
+      if (resp.ok) {
+        // Show message; also surface reset_link when DEBUG=true on server (dev convenience)
+        setMessage(
+          data?.message ||
+            "If an account with that email exists, reset instructions have been sent."
+        );
+        if (data?.reset_link) {
+          setMessage(
+            (data?.message || "Password reset link (dev): ") + `\n${data.reset_link}`
+          );
+        }
         setEmail("");
-      } else {
-        setError(data.message || "Failed to send reset instructions. Please try again.");
+        return;
       }
-    } catch (error) {
-      console.error('Forgot password error:', error);
+
+      // Common error shapes
+      if (resp.status === 429) {
+        setError(data?.message || "Too many attempts. Please try again later.");
+      } else if (resp.status === 400) {
+        setError(data?.message || "Invalid request. Please check the email and try again.");
+      } else if (resp.status >= 500) {
+        setError("Server error. Please try again later.");
+      } else {
+        setError(data?.message || "Failed to send reset instructions. Please try again.");
+      }
+    } catch (err) {
       setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <section className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-100 py-8 px-4 sm:px-6 lg:px-8">
@@ -68,45 +130,51 @@ export default function ForgotPasswordClient() {
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Reset Your Password</h1>
           <p className="text-gray-600 text-sm">
-            Enter your email address and we'll send you instructions to reset your password.
+            Enter your email address and we&apos;ll send you instructions to reset your password.
           </p>
         </div>
 
-        {/* Forgot Password Card */}
+        {/* Card */}
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
           {/* Backend Status */}
-          {backendStatus !== 'checking' && (
-            <div className={`mb-6 p-3 rounded-lg text-center text-sm ${
-              backendStatus === 'online' 
-                ? 'bg-green-50 text-green-700 border border-green-200' 
-                : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-            }`}>
-              {backendStatus === 'online' ? '✅ Backend Connected' : '🔄 Using Demo Mode'}
+          {backendStatus !== "checking" && (
+            <div
+              className={`mb-6 p-3 rounded-lg text-center text-sm ${
+                backendStatus === "online"
+                  ? "bg-green-50 text-green-700 border border-green-200"
+                  : "bg-yellow-50 text-yellow-700 border border-yellow-200"
+              }`}
+            >
+              {backendStatus === "online" ? "✅ Backend Connected" : "🔄 Backend offline – Using Demo Mode"}
             </div>
           )}
 
-          {/* Success Message */}
+          {/* Success */}
           {message && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
-              <svg className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-green-700 text-sm">{message}</p>
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg whitespace-pre-wrap">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-green-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-green-700 text-sm">{message}</p>
+              </div>
             </div>
           )}
 
-          {/* Error Message */}
+          {/* Error */}
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-red-700 text-sm">{error}</p>
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-red-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
             </div>
           )}
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {/* Email Field */}
+          <form className="space-y-6" onSubmit={handleSubmit} noValidate>
+            {/* Email */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
@@ -122,19 +190,24 @@ export default function ForgotPasswordClient() {
                     setEmail(e.target.value);
                     if (error) setError("");
                   }}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors hover:border-gray-400"
-                  placeholder="Enter your email address"
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-colors hover:border-gray-400 ${
+                    email && !emailValid ? "border-red-300 focus:ring-red-300" : "border-gray-300 focus:ring-amber-500"
+                  }`}
+                  placeholder="you@example.com"
                   required
                 />
-                <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
                   </svg>
                 </div>
               </div>
+              {email && !emailValid && (
+                <p className="mt-2 text-xs text-red-600">Please enter a valid email address.</p>
+              )}
             </div>
 
-            {/* Submit Button */}
+            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
@@ -160,14 +233,14 @@ export default function ForgotPasswordClient() {
           <div className="mt-6 text-center">
             <p className="text-gray-600 text-sm">
               Remember your password?{" "}
-              <Link href="/login" className="font-semibold text-amber-600 hover:text-amber-700 transition-colors underline">
+              <Link href="/login" className="font-semibold text-amber-600 hover:text-amber-700 underline">
                 Back to Sign In
               </Link>
             </p>
           </div>
         </div>
 
-        {/* Security Features */}
+        {/* Security Badges */}
         <div className="mt-8 grid grid-cols-2 gap-4 text-center">
           <div className="text-xs text-gray-600 p-3 bg-white rounded-lg border border-gray-200">
             <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-1">

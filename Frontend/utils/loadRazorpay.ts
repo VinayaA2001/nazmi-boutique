@@ -1,31 +1,23 @@
+// lib/razorpay.ts
+// ------------------------------------------------------------
+// Helper for Razorpay in Next.js (App Router).
+// Works in TEST mode with rzp_test_* keys.
+// ------------------------------------------------------------
+
 export interface RazorpayOptions {
   key: string;
-  amount: number;
+  amount: number; // in paise
   currency: string;
   name: string;
   description: string;
   image: string;
   order_id: string;
   handler: (response: RazorpayResponse) => void;
-  prefill: {
-    name: string;
-    email: string;
-    contact: string;
-  };
-  notes: {
-    address: string;
-  };
-  theme: {
-    color: string;
-  };
-  modal?: {
-    ondismiss?: () => void;
-    animation?: boolean;
-  };
-  retry?: {
-    enabled: boolean;
-    max_count: number;
-  };
+  prefill: { name: string; email: string; contact: string };
+  notes: { address: string };
+  theme: { color: string };
+  modal?: { ondismiss?: () => void; animation?: boolean };
+  retry?: { enabled: boolean; max_count: number };
   timeout?: number;
   remember_customer?: boolean;
 }
@@ -48,66 +40,81 @@ export interface RazorpayError {
 declare global {
   interface Window {
     Razorpay: any;
+    __RZP_KEY?: string;
   }
 }
 
-/**
- * Load Razorpay script dynamically
- * @returns Promise<boolean> - true if loaded successfully, false otherwise
- */
+/* ----------------------------------------------------------
+   Config: proxy vs direct backend
+---------------------------------------------------------- */
+const USE_PROXY_ROUTES = true;
+
+const PUBLIC_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
+
+const CREATE_ORDER_PATH = USE_PROXY_ROUTES
+  ? "/api/payments/razorpay/create-order"
+  : "/api/payments/create-order";
+
+const VERIFY_PAYMENT_PATH = USE_PROXY_ROUTES
+  ? "/api/payments/razorpay/verify"
+  : "/api/payments/verify-payment";
+
+/* ----------------------------------------------------------
+   Runtime key resolver (fixes “missing NEXT_PUBLIC_RAZORPAY_KEY_ID”)
+---------------------------------------------------------- */
+async function ensurePublicKey(): Promise<string> {
+  // 1) If baked in at build time, use it
+  const baked = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+  if (baked) return baked;
+
+  // 2) If a previous call fetched it, reuse
+  if (typeof window !== "undefined" && window.__RZP_KEY) return window.__RZP_KEY;
+
+  // 3) Fetch from API (you should have app/api/payments/razorpay/public-key)
+  try {
+    const r = await fetch("/api/payments/razorpay/public-key", { cache: "no-store" });
+    const j = await r.json();
+    const key = j?.key || "";
+    if (typeof window !== "undefined") window.__RZP_KEY = key;
+    return key;
+  } catch {
+    return "";
+  }
+}
+
+/* ---------------------------------------------------------- */
 export function loadRazorpay(): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    if (typeof window === "undefined") {
-      return resolve(false);
-    }
-
-    // Check if Razorpay is already loaded
-    if (window.Razorpay) {
-      return resolve(true);
-    }
+    if (typeof window === "undefined") return resolve(false);
+    if (window.Razorpay) return resolve(true);
 
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.async = true;
-    
-    script.onload = () => {
-      console.log("Razorpay SDK loaded successfully");
-      resolve(true);
-    };
-    
-    script.onerror = () => {
-      console.error("Failed to load Razorpay SDK");
-      resolve(false);
-    };
-    
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
     document.body.appendChild(script);
   });
 }
 
-/**
- * Initialize Razorpay payment
- * @param options - Razorpay options
- * @returns Promise<void>
- */
 export const initializePayment = async (options: RazorpayOptions): Promise<void> => {
-  const razorpayLoaded = await loadRazorpay();
-  
-  if (!razorpayLoaded) {
-    throw new Error('Razorpay SDK failed to load. Please check your internet connection.');
+  const loaded = await loadRazorpay();
+  if (!loaded || !window.Razorpay) {
+    throw new Error("Razorpay SDK failed to load. Check your internet connection.");
   }
 
-  if (!window.Razorpay) {
-    throw new Error('Razorpay is not available. Please refresh the page and try again.');
+  if (!options?.key) {
+    throw new Error("Payment configuration missing: NEXT_PUBLIC_RAZORPAY_KEY_ID");
   }
 
   const rzp = new window.Razorpay({
     ...options,
     modal: {
+      animation: true,
       ondismiss: () => {
-        console.log('Payment modal dismissed');
         options.modal?.ondismiss?.();
       },
-      animation: true,
       ...options.modal,
     },
   });
@@ -115,220 +122,143 @@ export const initializePayment = async (options: RazorpayOptions): Promise<void>
   rzp.open();
 };
 
-/**
- * Create Razorpay order on your backend
- * @param amount - Amount in paise (e.g., 1000 = ₹10)
- * @param currency - Currency code (default: INR)
- * @param receipt - Receipt ID
- */
+/* ---------------------------------------------------------- */
 export const createRazorpayOrder = async (
-  amount: number,
+  amountPaise: number,
   currency: string = "INR",
   receipt?: string
 ): Promise<{ id: string; amount: number; currency: string }> => {
-  try {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
-    
-    const response = await fetch(`${API_BASE}/api/payments/create-order`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        amount,
-        currency,
-        receipt: receipt || `receipt_${Date.now()}`,
-      }),
-    });
+  const url = USE_PROXY_ROUTES ? CREATE_ORDER_PATH : `${PUBLIC_API_BASE}${CREATE_ORDER_PATH}`;
 
-    if (!response.ok) {
-      throw new Error("Failed to create order");
-    }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      amount: amountPaise,
+      currency,
+      receipt: receipt || `receipt_${Date.now()}`,
+    }),
+    cache: "no-store",
+  });
 
-    const data = await response.json();
-    return data.order;
-  } catch (error) {
-    console.error("Error creating Razorpay order:", error);
-    throw new Error("Unable to create payment order. Please try again.");
+  const data = await res.json().catch(() => ({} as any));
+  if (!res.ok) {
+    const msg = data?.message || data?.error || `Failed to create order (${res.status})`;
+    throw new Error(msg);
   }
+
+  // Normalize common shapes: {id,...} OR {order:{id,...}} OR {order_id:...}
+  const order = data?.order || data?.data || data;
+  const id = order?.id || order?.order_id || data?.order_id || data?.id;
+  const amount = Number(order?.amount ?? data?.amount ?? amountPaise);
+  const curr = order?.currency || data?.currency || currency;
+
+  if (!id) throw new Error("Backend did not return a Razorpay order id.");
+
+  return { id, amount, currency: curr };
 };
 
-/**
- * Verify Razorpay payment signature
- * @param paymentResponse - Payment response from Razorpay
- * @param orderId - Order ID
- */
 export const verifyPayment = async (
   paymentResponse: RazorpayResponse,
   orderId: string
 ): Promise<boolean> => {
-  try {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com";
-    
-    const response = await fetch(`${API_BASE}/api/payments/verify-payment`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        razorpay_payment_id: paymentResponse.razorpay_payment_id,
-        razorpay_order_id: paymentResponse.razorpay_order_id,
-        razorpay_signature: paymentResponse.razorpay_signature,
-        order_id: orderId,
-      }),
-    });
+  const url = USE_PROXY_ROUTES ? VERIFY_PAYMENT_PATH : `${PUBLIC_API_BASE}${VERIFY_PAYMENT_PATH}`;
 
-    if (!response.ok) {
-      throw new Error("Payment verification failed");
-    }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      razorpay_payment_id: paymentResponse.razorpay_payment_id,
+      razorpay_order_id: paymentResponse.razorpay_order_id,
+      razorpay_signature: paymentResponse.razorpay_signature,
+      order_id: orderId,
+    }),
+    cache: "no-store",
+  });
 
-    const data = await response.json();
-    return data.success;
-  } catch (error) {
-    console.error("Error verifying payment:", error);
+  const data = await res.json().catch(() => ({} as any));
+  if (!res.ok) {
+    console.error("Verify payment failed:", data);
     return false;
   }
+  return !!(data?.success ?? data?.verified ?? data?.ok);
 };
 
-/**
- * Process complete payment flow
- * @param amount - Amount in rupees
- * @param userDetails - User details for prefill
- * @param onSuccess - Success callback
- * @param onError - Error callback
- */
 export const processPayment = async ({
-  amount,
+  amount, // rupees
   userDetails,
   onSuccess,
   onError,
   description = "Purchase from Nazmi Boutique",
 }: {
-  amount: number; // in rupees
-  userDetails: {
-    name: string;
-    email: string;
-    contact: string;
-    address: string;
-  };
+  amount: number;
+  userDetails: { name: string; email: string; contact: string; address: string };
   onSuccess: (paymentId: string, orderId: string) => void;
   onError: (error: string) => void;
   description?: string;
 }): Promise<void> => {
   try {
-    // Convert amount to paise
-    const amountInPaise = Math.round(amount * 100);
+    const key = await ensurePublicKey();
+    if (!key) throw new Error("Payment configuration missing: NEXT_PUBLIC_RAZORPAY_KEY_ID");
 
-    // Create order
-    const order = await createRazorpayOrder(amountInPaise);
+    const amountPaise = Math.round(amount * 100);
+    const order = await createRazorpayOrder(amountPaise);
 
-    // Razorpay options
     const options: RazorpayOptions = {
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
-      amount: amountInPaise,
+      key,
+      amount: amountPaise,
       currency: "INR",
       name: "Nazmi Boutique",
-      description: description,
-      image: "/logo.png", // Your boutique logo
+      description,
+      image: "/logo.png",
       order_id: order.id,
       prefill: {
         name: userDetails.name,
         email: userDetails.email,
         contact: userDetails.contact,
       },
-      notes: {
-        address: userDetails.address,
-      },
-      theme: {
-        color: "#D97706", // Amber color matching your theme
-      },
-      modal: {
-        ondismiss: () => {
-          onError("Payment cancelled by user");
-        },
-      },
-      retry: {
-        enabled: true,
-        max_count: 3,
-      },
-      timeout: 300, // 5 minutes
+      notes: { address: userDetails.address },
+      theme: { color: "#D97706" },
+      modal: { ondismiss: () => onError("Payment cancelled by user") },
+      retry: { enabled: true, max_count: 3 },
+      timeout: 300,
       remember_customer: true,
-    };
-
-    options.handler = async (response: RazorpayResponse) => {
-      try {
-        // Verify payment
-        const isVerified = await verifyPayment(response, order.id);
-        
-        if (isVerified) {
-          console.log("Payment verified successfully");
-          onSuccess(response.razorpay_payment_id, response.razorpay_order_id);
-        } else {
-          onError("Payment verification failed. Please contact support.");
+      handler: async (response: RazorpayResponse) => {
+        try {
+          const ok = await verifyPayment(response, order.id);
+          if (ok) onSuccess(response.razorpay_payment_id, response.razorpay_order_id);
+          else onError("Payment verification failed. Please contact support.");
+        } catch (e) {
+          console.error("Payment handler error:", e);
+          onError("Payment processing failed. Please try again.");
         }
-      } catch (error) {
-        console.error("Payment handler error:", error);
-        onError("Payment processing failed. Please try again.");
-      }
+      },
     };
 
-    // Initialize payment
     await initializePayment(options);
-  } catch (error) {
-    console.error("Payment process error:", error);
-    onError(error instanceof Error ? error.message : "Payment initialization failed");
+  } catch (err: any) {
+    console.error("Payment process error:", err);
+    onError(err?.message || "Payment initialization failed");
   }
 };
 
-/**
- * Check if Razorpay is available
- */
-export const isRazorpayAvailable = (): boolean => {
-  if (typeof window === "undefined") return false;
-  return !!window.Razorpay;
-};
+/* ---------------------------------------------------------- */
+export const isRazorpayAvailable = (): boolean =>
+  typeof window !== "undefined" && !!window.Razorpay;
 
-/**
- * Format amount for display
- * @param amount - Amount in paise
- * @returns Formatted amount string
- */
-export const formatAmount = (amount: number): string => {
-  return `₹${(amount / 100).toFixed(2)}`;
-};
+export const formatAmount = (amountPaise: number): string =>
+  `₹${(amountPaise / 100).toFixed(2)}`;
 
-/**
- * Get default Razorpay options
- */
-export const getDefaultRazorpayOptions = (): Partial<RazorpayOptions> => {
-  return {
-    theme: {
-      color: "#D97706", // Amber-600
-    },
-    modal: {
-      animation: true,
-    },
-    retry: {
-      enabled: true,
-      max_count: 3,
-    },
-    timeout: 300,
-    remember_customer: true,
-  };
-};
+export const getDefaultRazorpayOptions = (): Partial<RazorpayOptions> => ({
+  theme: { color: "#D97706" },
+  modal: { animation: true },
+  retry: { enabled: true, max_count: 3 },
+  timeout: 300,
+  remember_customer: true,
+});
 
-/**
- * Demo payment function for testing
- */
-export const processDemoPayment = async (amount: number): Promise<boolean> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Simulate successful payment in demo mode
-      console.log(`Demo payment processed for ₹${amount}`);
-      resolve(true);
-    }, 2000);
-  });
-};
+export const processDemoPayment = async (amount: number): Promise<boolean> =>
+  new Promise((resolve) => setTimeout(() => resolve(true), 1200));
 
 export default {
   loadRazorpay,

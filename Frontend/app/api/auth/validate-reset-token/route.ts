@@ -8,7 +8,7 @@ export const revalidate = 0;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const r = await fetch(`${API_BASE}/api/auth/login`, {
+    const r = await fetch(`${API_BASE}/api/auth/validate-reset-token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body ?? {}),
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const ct = r.headers.get("content-type") || "application/json";
     return new NextResponse(text, { status: r.status, headers: { "content-type": ct } });
   } catch (e: any) {
-    return NextResponse.json({ message: e?.message || "Login proxy failed" }, { status: 502 });
+    return NextResponse.json({ message: e?.message || "Validation proxy failed" }, { status: 502 });
   }
 }
 

@@ -2,73 +2,77 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 
-// Force Node runtime; avoid static opt
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const isEmail = (s?: string) => !!s && /^\S+@\S+\.\S+$/.test(s);
+
 export async function POST(req: NextRequest) {
   try {
-    const { email, firstName = "there", token } =
-      (await req.json().catch(() => ({}))) as {
-        email?: string;
-        firstName?: string;
-        token?: string;
-      };
+    const body = await req.json().catch(() => ({}));
+    const email = String(body?.email ?? "").trim();
+    const firstName = String(body?.firstName ?? "there").trim() || "there";
+    const token = String(body?.token ?? "").trim();
 
-    if (!email || !token) {
+    if (!isEmail(email) || !token) {
       return NextResponse.json(
-        { error: "Missing email or token" },
+        { error: "Missing/invalid email or token" },
         { status: 400 }
       );
     }
 
-    // Make sure key exists in server env
     const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.EMAIL_FROM; // e.g. "Nazmi Boutique <no-reply@yourdomain.com>"
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "RESEND_API_KEY is not configured" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "RESEND_API_KEY not configured" }, { status: 500 });
+    }
+    if (!from) {
+      return NextResponse.json({ error: "EMAIL_FROM not configured" }, { status: 500 });
     }
 
-    // Create client inside handler (prevents build-time issues)
     const resend = new Resend(apiKey);
 
-    // Derive a safe base URL (prefers request origin)
+    // Prefer request origin to avoid wrong host in links
     const origin =
-      req.headers.get("origin") ||
+      // req.nextUrl.origin is reliable across dev/prod
+      req.nextUrl.origin ||
       process.env.NEXT_PUBLIC_BASE_URL ||
-      (process.env.NEXTAUTH_URL?.startsWith("http")
-        ? process.env.NEXTAUTH_URL
-        : undefined) ||
+      process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
-    const verifyUrl = `${origin}/verify-email?token=${encodeURIComponent(
-      token
-    )}&email=${encodeURIComponent(email)}`;
+    const verify = new URL("/verify-email", origin);
+    verify.searchParams.set("token", token);
+    verify.searchParams.set("email", email);
+    const verifyUrl = verify.toString();
 
-    await resend.emails.send({
-      // IMPORTANT: Resend requires a verified domain sender.
-      // Replace with something like "no-reply@yourdomain.com" that you've verified in Resend.
-      from: process.env.EMAIL_FROM || "Nazmi Boutique <no-reply@yourdomain.com>",
+    const { data, error } = await resend.emails.send({
+      from,
       to: email,
       subject: "Verify Your Email - Nazmi Boutique",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
-          <h2>Hi ${firstName},</h2>
+          <h2>Hi ${escapeHtml(firstName)},</h2>
           <p>Click the button below to verify your email.</p>
           <p>
             <a href="${verifyUrl}" style="background:#000;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">
               Verify Email
             </a>
           </p>
-          <p>Or open this link: ${verifyUrl}</p>
+          <p style="color:#666;font-size:12px">If the button doesn't work, copy & paste this link:<br>${verifyUrl}</p>
         </div>
       `,
+      text: `Hi ${firstName},\n\nVerify your email:\n${verifyUrl}\n`,
+      // optional headers you might like:
+      // reply_to: "support@yourdomain.com",
     });
 
-    return NextResponse.json({ ok: true });
+    if (error) {
+      // Resend returns structured errors – surface the message
+      return NextResponse.json({ error: error.message || "Failed to send" }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: true, id: data?.id ?? null });
   } catch (err: any) {
     console.error("[send-verification-email] error:", err);
     return NextResponse.json(
@@ -76,4 +80,9 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// minimal HTML escaper for firstName
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]!));
 }

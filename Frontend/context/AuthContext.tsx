@@ -2,10 +2,13 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
 type User = {
   id: string;
   email?: string | null;
   phone?: string | null;
+  username?: string | null;
   firstName?: string | null;
   lastName?: string | null;
 };
@@ -50,7 +53,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Restore session
   useEffect(() => {
     try {
       const t = localStorage.getItem("auth_token");
@@ -63,25 +65,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
-  const login = async (emailOrPhone: string, password: string) => {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ emailOrPhone, password }),
-    });
-    const data = await safeJson(res);
-    if (!res.ok) {
-      const err: any = new Error(data?.message || "Login failed");
-      err.code = data?.code;
-      err.field = data?.field;
-      throw err;
-    }
+ const login = async (emailOrPhone: string, password: string) => {
+  // decide whether it's a phone number or email
+  const digits = emailOrPhone.replace(/\D/g, "");
+  const isPhone = /^[6-9]\d{9}$/.test(digits);
 
-    setToken(data.token);
-    setUser(data.user);
-    localStorage.setItem("auth_token", data.token);
-    localStorage.setItem("auth_user", JSON.stringify(data.user));
-  };
+  const payload =
+    isPhone
+      ? { phone: digits, password }                            // ✅ phone key
+      : { email: emailOrPhone.trim().toLowerCase(), password } // ✅ email key
+
+  const res = await fetch(`/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await safeJson(res);
+  if (!res.ok) {
+    const err: any = new Error(data?.message || data?.error || "Login failed");
+    err.code = data?.code;
+    err.field = data?.field;
+    throw err;
+  }
+
+  setToken(data.token);
+  setUser(data.user);
+  localStorage.setItem("auth_token", data.token);
+  localStorage.setItem("auth_user", JSON.stringify(data.user));
+  try {
+    const maxAge = 7 * 24 * 60 * 60;
+    const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `auth_token=${encodeURIComponent(data.token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+  } catch {}
+};
+
 
   const register: AuthContextType["register"] = async ({
     firstName,
@@ -90,24 +108,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     phone,
     password,
   }) => {
-    const res = await fetch("/api/auth/register", {
+    const res = await fetch(`/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ firstName, lastName, email, phone, password }),
+      body: JSON.stringify({
+        username: [firstName, lastName].filter(Boolean).join(" ").trim() || "user",
+        email,
+        phone,
+        password,
+      }),
     });
     const data = await safeJson(res);
     if (!res.ok) {
-      const err: any = new Error(data?.message || "Registration failed");
+      const err: any = new Error(data?.error || data?.message || "Registration failed");
       err.code = data?.code;
       err.field = data?.field;
       throw err;
     }
-
-    // Auto-login after successful registration
     const identifier = (email ?? "").trim().toLowerCase() || (phone ?? "");
-    if (identifier) {
-      await login(identifier, password);
-    }
+    if (identifier) await login(identifier, password);
   };
 
   const logout = () => {
@@ -117,17 +136,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("auth_user");
   };
 
-  const value: AuthContextType = {
-    user,
-    token,
-    loading,
-    isAuthenticated: !!token && !!user,
-    login,
-    register,
-    logout,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{ user, token, loading, isAuthenticated: !!token && !!user, login, register, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export const useAuth = () => useContext(AuthContext);

@@ -1,67 +1,103 @@
-import { NextRequest, NextResponse } from 'next/server';
+// app/api/user/address/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:5000/api";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export async function GET(request: NextRequest) {
+const API_BASE =
+  process.env.SERVER_API_BASE || // prefer server-only var in prod
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://localhost:5000/api";
+
+// Helper: build Authorization, preferring header, else cookie "token"
+function buildAuthHeader(req: NextRequest) {
+  const header = req.headers.get("authorization");
+  if (header) return header;
+
+  const jar = cookies();
+  const raw = jar.get("token")?.value;
+  if (!raw) return undefined;
+
+  // Accept either already "Bearer ..." or a bare token
+  return raw.toLowerCase().startsWith("bearer ") ? raw : `Bearer ${raw}`;
+}
+
+// Helper: fetch with timeout + consistent error handling
+async function forward(
+  req: NextRequest,
+  path: string,
+  init: RequestInit & { timeoutMs?: number } = {}
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), init.timeoutMs ?? 10_000);
+
+  const url = `${API_BASE}${path}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init.headers as Record<string, string>),
+  };
+  const auth = buildAuthHeader(req);
+  if (auth) headers.Authorization = auth;
+
   try {
-    const authHeader = request.headers.get('Authorization');
-    
-    const response = await fetch(`${API_BASE}/user/address`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authHeader && { 'Authorization': authHeader }),
-      },
+    const res = await fetch(url, {
+      ...init,
+      headers,
+      signal: controller.signal,
+      // never cache these proxy calls
+      cache: "no-store",
     });
 
-    if (!response.ok) {
-      console.error('Backend address fetch failed:', response.status, response.statusText);
+    // Try to parse JSON, but gracefully handle non-JSON responses
+    let payload: any = null;
+    const text = await res.text();
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = text || null;
+    }
+
+    if (!res.ok) {
+      // return backend message when available
+      const message =
+        (payload && (payload.error || payload.message)) ||
+        `Upstream error ${res.status}`;
       return NextResponse.json(
-        { error: 'Failed to fetch address' },
-        { status: response.status }
+        { error: "Failed to process address", message },
+        { status: res.status }
       );
     }
 
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error('Address fetch error:', error);
+    // 204 no content
+    if (!text) {
+      return NextResponse.json(null, { status: res.status });
+    }
+
+    return NextResponse.json(payload, { status: res.status });
+  } catch (err: any) {
+    const aborted = err?.name === "AbortError";
     return NextResponse.json(
-      { error: 'Network error while fetching address' },
-      { status: 500 }
+      {
+        error: aborted ? "Upstream timeout" : "Network error while contacting backend",
+        details: aborted ? "Timed out after 10s" : err?.message || String(err),
+      },
+      { status: 504 }
     );
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const authHeader = request.headers.get('Authorization');
-    const body = await request.json();
-    
-    const response = await fetch(`${API_BASE}/user/address`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authHeader && { 'Authorization': authHeader }),
-      },
-      body: JSON.stringify(body),
-    });
+export async function GET(req: NextRequest) {
+  return forward(req, "/user/address", { method: "GET" });
+}
 
-    if (!response.ok) {
-      console.error('Backend address save failed:', response.status, response.statusText);
-      return NextResponse.json(
-        { error: 'Failed to save address' },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error('Address save error:', error);
-    return NextResponse.json(
-      { error: 'Network error while saving address' },
-      { status: 500 }
-    );
-  }
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}));
+  return forward(req, "/user/address", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
