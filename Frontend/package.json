@@ -11,7 +11,7 @@
     "dev:frontend": "next dev",
     "start:backend": "cd ../Backend && python app.py",
     "start:frontend": "next start",
-    "postinstall": "prisma generate",
+    "postinstall": "node scripts/postinstall.js",
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio"
