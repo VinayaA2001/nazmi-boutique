@@ -360,9 +360,9 @@ export default function EthnicCollectionPage() {
 
         // If backend already filtered by category, don’t over-filter.
         // But if mixed content arrives, keep only “ethnic-looking” ones.
-        const maybeEthnic = normalized.filter(looksEthnic);
-        const finalList =
-          maybeEthnic.length > 0 ? maybeEthnic : normalized;
+        // Strictly enforce ethnic-only (exclude western/coord terms like coord, co-ord)
+        // Show ALL matching ethnic products (no client-side cap)
+        const finalList = normalized.filter(looksEthnic);
 
         setProductList(finalList);
       } catch (err: any) {

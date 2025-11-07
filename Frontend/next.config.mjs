@@ -9,15 +9,12 @@ const baseConfig = {
   outputFileTracingRoot: process.cwd(),
 
   images: {
-    // Allow these hosts (works alongside remotePatterns)
-    domains: ["res.cloudinary.com", "nazmi-boutique-2.onrender.com", "localhost", "127.0.0.1"],
+    // Next 16: explicitly declare allowed qualities used by <Image quality={...}>
+    qualities: [60, 75, 80, 85, 90, 100],
     formats: ["image/avif", "image/webp"],
     remotePatterns: [
-      // Cloudinary (any path)
       { protocol: "https", hostname: "res.cloudinary.com", pathname: "/**" },
-      // Backend absolute URLs (Render)
       { protocol: "https", hostname: "nazmi-boutique-2.onrender.com", pathname: "/**" },
-      // Local dev backend
       { protocol: "http", hostname: "localhost", port: "5000", pathname: "/**" },
       { protocol: "http", hostname: "127.0.0.1", port: "5000", pathname: "/**" },
     ],
@@ -27,6 +24,15 @@ const baseConfig = {
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
   reactStrictMode: true,
+  // Allow dev access via LAN IPs to /_next/* assets
+  allowedDevOrigins: [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    ...((process.env.NEXT_DEV_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)),
+  ],
 
   // ✅ proxy all /api/* to your Flask backend
   async rewrites() {

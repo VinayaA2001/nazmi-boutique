@@ -383,14 +383,14 @@ export default function Header() {
                     ) : (
                       <>
                         <Link
-                          href="/login"
+                          href="/auth/login"
                           className="block px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
                           onClick={closeAllMenus}
                         >
                           Sign In
                         </Link>
                         <Link
-                          href="/register"
+                          href="/auth/register"
                           className="block px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
                           onClick={closeAllMenus}
                         >
@@ -448,11 +448,11 @@ export default function Header() {
                 className="lg:hidden relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50 group"
                 aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               >
-                <div className="w-6 h-6 flex flex-col justify-center items-center gap-1">
-                  <div className={`w-6 h-0.5 bg-gray-700 rounded-full transition-all duration-300 ${mobileMenuOpen ? 'rotate-45 translate-y-1.5' : ''}`} />
-                  <div className={`w-6 h-0.5 bg-gray-700 rounded-full transition-all duration-300 ${mobileMenuOpen ? 'opacity-0' : ''}`} />
-                  <div className={`w-6 h-0.5 bg-gray-700 rounded-full transition-all duration-300 ${mobileMenuOpen ? '-rotate-45 -translate-y-1.5' : ''}`} />
-                </div>
+                {mobileMenuOpen ? (
+                  <X className="w-6 h-6" />
+                ) : (
+                  <Menu className="w-6 h-6" />
+                )}
                 <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
               </button>
             </div>
