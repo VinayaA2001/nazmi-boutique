@@ -18,9 +18,11 @@ import {
   ZoomIn,
   ZoomOut,
   RefreshCw,
+  Cross,
 } from "lucide-react";
 
 import ProductCardClient, { type CardProduct } from "@/components/commerce/ProductCardClient";
+import NoOrdersWarning from "@/components/NoOrdersWarning";
 
 /* ========= Config ========= */
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -911,8 +913,10 @@ export default function ProductDetailPage() {
         limit={12}
       />
 
+      {showPaymentModal && <NoOrdersWarning setShowPaymentModal={setShowPaymentModal} />}
+
       {/* Payment Modal */}
-      {showPaymentModal && product && variant && (
+      {false && showPaymentModal && product && variant && (
         <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm overflow-y-auto">
           <div className="min-h-full flex items-start justify-center p-4 sm:pt-8">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl">

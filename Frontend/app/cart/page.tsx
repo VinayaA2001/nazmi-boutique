@@ -351,7 +351,7 @@ export default function CartPage() {
                               {/* Price Display */}
                               <div className="flex items-center gap-3 mb-2">
                                 <p className="text-2xl font-bold text-gray-900">
-                                  ₹{item.price.toLocaleString()}
+                                  ₹{item.price?.toLocaleString()}
                                 </p>
                                 {item.originalPrice && item.originalPrice > item.price && (
                                   <>
@@ -422,7 +422,7 @@ export default function CartPage() {
                                 ₹{(item.price * item.quantity).toLocaleString()}
                               </p>
                               <p className="text-sm text-gray-500 mt-1">
-                                {item.quantity} × ₹{item.price.toLocaleString()}
+                                {item.quantity} × ₹{item.price?.toLocaleString()}
                               </p>
                             </div>
                           </div>
@@ -455,7 +455,7 @@ export default function CartPage() {
                           </div>
                           <div className="flex-1">
                             <h4 className="font-semibold text-gray-900 mb-1">{item.name}</h4>
-                            <p className="text-lg font-bold text-gray-900 mb-2">₹{item.price.toLocaleString()}</p>
+                            <p className="text-lg font-bold text-gray-900 mb-2">₹{item.price?.toLocaleString()}</p>
                             <button
                               onClick={() => moveToCart(item)}
                               className="text-blue-600 hover:text-blue-700 font-medium text-sm flex items-center gap-1"
