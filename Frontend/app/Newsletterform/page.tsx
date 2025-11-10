@@ -6,41 +6,40 @@ import { Loader2, CheckCircle2, Mail } from "lucide-react";
 
 type Variant = "compact" | "card";
 
-type Props = {
-  /** Where to POST the email (you can change later) */
+interface Props {
+  /** Endpoint to POST the email (customize later if needed) */
   action?: string;
-  /** UI style */
+  /** Layout style: compact (footer) or card (section) */
   variant?: Variant;
-  /** Extra classes for the outer wrapper */
+  /** Additional CSS classes for wrapper */
   className?: string;
-};
+}
 
 export default function NewsletterForm({
   action = "/api/newsletter",
   variant = "compact",
-  className,
+  className = "",
 }: Props) {
   const [email, setEmail] = useState("");
+  const [website, setWebsite] = useState(""); // honeypot for bots
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
 
-  // honeypot (hidden bot trap)
-  const [website, setWebsite] = useState("");
-
+  // Handle form submission
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
 
-    // basic validation
-    const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-    if (!ok) {
+    // Email validation
+    const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    if (!validEmail) {
       setStatus("error");
       setMessage("Please enter a valid email address.");
       return;
     }
 
-    // bot check
+    // Bot protection: honeypot field check
     if (website) return;
 
     try {
@@ -48,7 +47,6 @@ export default function NewsletterForm({
       setStatus("idle");
       setMessage("");
 
-      // Replace with your real API later
       const res = await fetch(action, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -72,7 +70,7 @@ export default function NewsletterForm({
     }
   };
 
-  // ---------- COMPACT (good for footer) ----------
+  // ---------- COMPACT VERSION (for footer) ----------
   if (variant === "compact") {
     return (
       <form onSubmit={onSubmit} className={className}>
@@ -90,7 +88,7 @@ export default function NewsletterForm({
               required
               className="w-full pl-9 pr-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-400
                          focus:outline-none focus:border-[#6D7E5F] transition-colors text-sm"
-              aria-invalid={status === "error" ? true : undefined}
+              aria-invalid={status === "error"}
               aria-describedby={status !== "idle" ? "newsletter-status" : undefined}
             />
           </div>
@@ -113,7 +111,7 @@ export default function NewsletterForm({
           </button>
         </div>
 
-        {/* Hidden honeypot */}
+        {/* Honeypot for bots */}
         <div aria-hidden="true" className="hidden">
           <label>
             Website
@@ -146,15 +144,19 @@ export default function NewsletterForm({
     );
   }
 
-  // ---------- CARD (section block for a page) ----------
+  // ---------- CARD VERSION (for standalone section) ----------
   return (
-    <div className={`bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-xl p-8 shadow-lg ${className || ""}`}>
+    <div
+      className={`bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-xl p-8 shadow-lg ${className}`}
+    >
       {/* Header */}
       <div className="text-center mb-6">
         <div className="w-20 h-20 bg-black rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-white font-bold text-lg">N</span>
         </div>
-        <h3 className="text-2xl font-semibold text-gray-900 mb-2">Join the Nazmi Boutique Family</h3>
+        <h3 className="text-2xl font-semibold text-gray-900 mb-2">
+          Join the Nazmi Boutique Family
+        </h3>
         <p className="text-gray-600">Get exclusive offers, new drops & style tips.</p>
       </div>
 
@@ -174,7 +176,7 @@ export default function NewsletterForm({
             onChange={(e) => setEmail(e.target.value)}
             required
             className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition-all"
-            aria-invalid={status === "error" ? true : undefined}
+            aria-invalid={status === "error"}
             aria-describedby={status !== "idle" ? "newsletter-status-card" : undefined}
           />
           <button
@@ -186,7 +188,7 @@ export default function NewsletterForm({
           </button>
         </div>
 
-        {/* honeypot */}
+        {/* Honeypot */}
         <div aria-hidden="true" className="hidden">
           <label>
             Website
@@ -203,9 +205,9 @@ export default function NewsletterForm({
           <p
             id="newsletter-status-card"
             role={status === "error" ? "alert" : "status"}
-            className={`mt-3 text-sm ${
+            className={`mt-3 text-sm flex items-center gap-1 ${
               status === "success" ? "text-emerald-600" : "text-red-600"
-            } flex items-center gap-1`}
+            }`}
           >
             {status === "success" && <CheckCircle2 className="h-4 w-4" />}
             {message}
