@@ -35,7 +35,7 @@ export default function Footer() {
             </div>
             <div>
               <h4 className="font-semibold text-lg">Free Shipping</h4>
-              <p className="text-gray-400 text-sm">On orders over ₹2000</p>
+              <p className="text-gray-400 text-sm">On orders over â‚¹2000</p>
             </div>
           </div>
 
@@ -87,7 +87,7 @@ export default function Footer() {
             <div>
               <h3 className="text-3xl font-serif font-bold text-white mb-4">NAZMI</h3>
               <p className="text-gray-400 leading-relaxed text-lg">
-                Minimal fashion from Kerala — blending Traditional & Western styles with elegance and contemporary design.
+               “Minimal fashion from Kerala — where tradition meets modern elegance.”
               </p>
             </div>
 
@@ -223,21 +223,21 @@ export default function Footer() {
         {/* Bottom Bar (plain text, not clickable) */}
         <div className="border-t border-gray-700 pt-8">
           <div className="flex flex-col lg:flex-row justify-between items-center space-y-4 lg:space-y-0">
-            <div className="text-gray-400 text-sm">
-              © {currentYear} Nazmi Boutique. All rights reserved.
+                                    <div className="text-gray-400 text-sm">
+              {'\u00A9'} {currentYear} Nazmi Boutique. All rights reserved.
             </div>
 
-            {/* Plain text items, no bullets, no links */}
+            {/* Legal links */}
             <ul className="flex flex-wrap justify-center gap-6 text-sm list-none p-0 m-0">
-              <FooterText label="Privacy Policy" small />
-              <FooterText label="Terms of Service" small />
-              <FooterText label="Cookie Policy" small />
-              <FooterText label="Sitemap" small />
+              <FooterLink href="/privacy-policy" label="Privacy Policy" small />
+              <FooterLink href="/terms" label="Terms of Service" small />
+              <FooterLink href="/cookie-policy" label="Cookie Policy" small />
+          
             </ul>
 
             <div className="text-gray-500 text-sm flex items-center gap-2">
               <span>Made with</span>
-              <div className="text-red-500 animate-pulse">❤️</div>
+              <span className="text-red-500" aria-hidden>❤️</span>
               <span>in Kerala</span>
             </div>
           </div>
@@ -303,3 +303,8 @@ function FooterText({ label, small = false }: { label: string; small?: boolean }
     </li>
   );
 }
+
+
+
+
+
