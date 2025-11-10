@@ -231,7 +231,7 @@ export default function Footer() {
             <ul className="flex flex-wrap justify-center gap-6 text-sm list-none p-0 m-0">
               <FooterLink href="/privacy-policy" label="Privacy Policy" small />
               <FooterLink href="/terms" label="Terms of Service" small />
-              <FooterLink href="/cookie-policy" label="Cookie Policy" small />
+              
           
             </ul>
 
