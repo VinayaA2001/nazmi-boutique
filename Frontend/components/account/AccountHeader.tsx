@@ -1,20 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import type {User} from "@/lib/type"; 
+import type { User } from "@/lib/type";
 
-type Props = { user: User | null };
+type Props = {
+  user: User | null;
+  onLogout?: () => void; // ⬅︎ NEW
+};
 
-export default function AccountHeader({ user }: Props) {
-  const firstLetter = (user?.username?.[0] || "N").toUpperCase();
+export default function AccountHeader({ user, onLogout }: Props) {
+  const firstLetter = (
+    user?.username ||
+    user?.email?.[0] ||
+    "N"
+  )
+    .charAt(0)
+    .toUpperCase();
 
-  const logout = () => {
+    const handleLogout = () => {
+    // Prefer global auth logout if provided
+    if (onLogout) {
+      onLogout();
+      return;
+    }
+
+    // Fallback: manual cleanup
     try {
       localStorage.removeItem("auth_token");
+      localStorage.removeItem("auth_user"); // if you store this
+      document.cookie = "auth_token=; Path=/; Max-Age=0; SameSite=Lax";
+      document.cookie = "user=; Path=/; Max-Age=0; SameSite=Lax";
     } catch {
-      // Safe fallback
+      // ignore
     }
-    window.location.href = "/";
+    window.location.href = "/"; // or "/auth/login" if you prefer
   };
 
   return (
@@ -38,21 +57,22 @@ export default function AccountHeader({ user }: Props) {
         {/* Auth Buttons */}
         {user ? (
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="text-sm px-4 py-2 rounded-lg bg-black text-white hover:bg-gray-800"
           >
             Sign out
           </button>
         ) : (
           <div className="flex gap-2">
+            {/* Make sure these match your actual routes */}
             <Link
-              href="/login"
+              href="/auth/login"
               className="text-sm px-4 py-2 rounded-lg bg-black text-white hover:bg-gray-800"
             >
               Sign in
             </Link>
             <Link
-              href="/register"
+              href="/auth/register"
               className="text-sm px-4 py-2 rounded-lg border hover:border-black"
             >
               Create account

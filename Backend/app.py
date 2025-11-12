@@ -498,6 +498,38 @@ def reset_password():
         app.logger.exception("Reset password error")
         return jsonify({"success": False, "message": "Internal server error"}), 500
 
+
+# ----- Update profile (address) -----
+@app.put("/api/auth/profile")
+@token_required
+def update_profile(current_user):
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        profile = data.get("profile") or {}
+        update_profile = {
+            "fullName": str(profile.get("fullName", "")),
+            "phone": str(profile.get("phone", "")),
+            "line1": str(profile.get("line1", "")),
+            "line2": str(profile.get("line2", "")),
+            "city": str(profile.get("city", "")),
+            "state": str(profile.get("state", "")),
+            "pincode": str(profile.get("pincode", "")),
+        }
+        mongo.db.users.update_one({"_id": current_user["_id"]}, {"$set": {"profile": update_profile}})
+        user = mongo.db.users.find_one({"_id": current_user["_id"]})
+        user["_id"] = str(user["_id"])
+        return jsonify({
+            "message": "Profile updated",
+            "user": {
+                "id": user["_id"],
+                "username": user.get("username", ""),
+                "email": user.get("email", ""),
+                "profile": user.get("profile", {}),
+            }
+        })
+    except Exception:
+        logging.exception("Profile update error")
+        return jsonify({"error": "Failed to update profile"}), 500
 # ==================== PRODUCTS ====================
 @app.get("/api/products")
 def get_products():

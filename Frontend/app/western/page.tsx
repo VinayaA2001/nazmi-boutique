@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Heart,
   X,
@@ -129,8 +130,29 @@ function normalizeProduct(raw: any): Product {
 }
 
 /* ---------- Western-only filter ---------- */
-const WESTERN = ["western", "jeans", "tops", "dress", "skirt", "officewear", "denim", "jacket", "shirt", "trouser", "blouse"];
-const ETHNIC = ["ethnic", "traditional", "saree", "salwar", "kurta", "lehenga", "dhoti", "mundu"];
+const WESTERN = [
+  "western",
+  "jeans",
+  "tops",
+  "dress",
+  "skirt",
+  "officewear",
+  "denim",
+  "jacket",
+  "shirt",
+  "trouser",
+  "blouse",
+];
+const ETHNIC = [
+  "ethnic",
+  "traditional",
+  "saree",
+  "salwar",
+  "kurta",
+  "lehenga",
+  "dhoti",
+  "mundu",
+];
 const isWesternOnly = (p: Product) => {
   const txt = `${p.category} ${p.material} ${p.product_name}`.toLowerCase();
   return WESTERN.some((k) => txt.includes(k)) && !ETHNIC.some((k) => txt.includes(k));
@@ -151,6 +173,8 @@ const makeSlug = (p: Product) => {
 };
 
 export default function WesternPage() {
+  const router = useRouter();
+
   const [productList, setProductList] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
@@ -174,7 +198,12 @@ export default function WesternPage() {
         setLoading(true);
         const r = await fetch("/api/products?category=western", { cache: "no-store" });
         const data = r.ok ? await r.json() : [];
-        const products = (Array.isArray(data?.products) ? data.products : Array.isArray(data) ? data : [])
+        const products = (Array.isArray(data?.products)
+          ? data.products
+          : Array.isArray(data)
+          ? data
+          : []
+        )
           .map(normalizeProduct)
           .filter(isWesternOnly);
         setProductList(products.slice(0, 20));
@@ -286,6 +315,43 @@ export default function WesternPage() {
   };
 
   const isInWishlist = (id: string) => wishlist.has(id);
+
+  // Direct checkout (no payment here, just go to /checkout)
+  const startDirectCheckout = (p: Product, v?: ProductVariant) => {
+    if (!v) {
+      alert("This product is currently unavailable.");
+      return;
+    }
+    if (v.stock <= 0) {
+      alert("This product is out of stock.");
+      return;
+    }
+
+    const name = p.product_name || `${p.material} ${p.category}`;
+    const directItem = {
+      id: `${p._id}-${v.size}-${v.colour}`,
+      productId: p._id,
+      name,
+      price: v.price,
+      image: getImageUrl(p.images?.[0]),
+      quantity: 1,
+      size: v.size,
+      color: v.colour,
+      productCode: p.product_code,
+      maxStock: v.stock,
+      isDirectOrder: true,
+    };
+
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("directOrder", JSON.stringify([directItem]));
+      }
+      router.push("/checkout?type=direct");
+    } catch (err) {
+      console.error("Failed to start direct checkout", err);
+      alert("Unable to start checkout. Please try again.");
+    }
+  };
 
   /* ---------------- UI ---------------- */
 
@@ -436,9 +502,13 @@ export default function WesternPage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
           {filteredProducts.map((p) => {
             const slug = makeSlug(p);
-            const first = p.variants.find((v) => Number(v.stock) > 0) || p.variants[0];
+            const first =
+              p.variants.find((v) => Number(v.stock) > 0) || p.variants[0];
+
             const q = first
-              ? `?color=${encodeURIComponent(first.colour)}&size=${encodeURIComponent(first.size)}`
+              ? `?color=${encodeURIComponent(first.colour)}&size=${encodeURIComponent(
+                  first.size
+                )}`
               : "";
 
             // Pricing & badge
@@ -451,6 +521,8 @@ export default function WesternPage() {
             const badgePct = rawPct >= 35 ? 40 : 30;
 
             const wished = isInWishlist(p._id);
+            const canDirectCheckout =
+              !p.hasMultipleOptions && first && first.stock > 0;
 
             return (
               <Link
@@ -508,9 +580,22 @@ export default function WesternPage() {
                     <span className="text-sm font-semibold text-gray-900">₹{salePrice}</span>
                   </div>
 
-                  <div className="w-full mt-2 py-2 text-xs font-medium rounded bg-black text-white text-center">
-                    {p.hasMultipleOptions ? "VIEW OPTIONS" : "VIEW PRODUCT"}
-                  </div>
+                  {canDirectCheckout ? (
+                    <button
+                      className="w-full mt-2 py-2 text-xs font-medium rounded bg-black text-white text-center hover:bg-gray-800"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startDirectCheckout(p, first);
+                      }}
+                    >
+                      ORDER NOW
+                    </button>
+                  ) : (
+                    <div className="w-full mt-2 py-2 text-xs font-medium rounded bg-black text-white text-center">
+                      {p.hasMultipleOptions ? "VIEW OPTIONS" : "VIEW PRODUCT"}
+                    </div>
+                  )}
                 </div>
               </Link>
             );

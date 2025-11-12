@@ -1,4 +1,5 @@
 "use client";
+
 import Image from "next/image";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Heart, ShoppingCart, User, Search, Menu, X } from "lucide-react";
@@ -34,7 +35,7 @@ export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
-  const { cartItems, getCartItemsCount } = useCart();
+  const { getCartItemsCount } = useCart();
 
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
@@ -72,7 +73,6 @@ export default function Header() {
     };
   }, [loadCounts, pathname, isClient]);
 
-  /** Close search on outside click or Escape */
   useEffect(() => {
     if (!searchOpen && !accountDropdownOpen) return;
 
@@ -80,11 +80,10 @@ export default function Header() {
       const searchEl = searchWrapRef.current;
       const accountEl = accountDropdownRef.current;
       const target = e.target as Node | null;
-      
+
       if (searchOpen && searchEl && target && !searchEl.contains(target)) {
         setSearchOpen(false);
       }
-      
       if (accountDropdownOpen && accountEl && target && !accountEl.contains(target)) {
         setAccountDropdownOpen(false);
       }
@@ -106,13 +105,12 @@ export default function Header() {
     };
   }, [searchOpen, accountDropdownOpen]);
 
-  /** Also close popover on route changes */
   useEffect(() => {
     setSearchOpen(false);
     setAccountDropdownOpen(false);
+    setMobileMenuOpen(false);
   }, [pathname]);
 
-  /** Navigate to search page and close popover */
   const goSearch = (term: string) => {
     const q = term.trim();
     if (!q) return;
@@ -120,13 +118,13 @@ export default function Header() {
     setSearchOpen(false);
   };
 
-  /** Form submit uses SPA navigation */
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     goSearch(searchQuery);
   };
 
-  const isActiveLink = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const isActiveLink = (href: string) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   const closeAllMenus = () => {
     setMobileMenuOpen(false);
@@ -134,20 +132,24 @@ export default function Header() {
     setAccountDropdownOpen(false);
   };
 
-  // Handle logout
   const handleLogout = () => {
-    logout();
-    closeAllMenus();
-    router.push("/");
+    try {
+      logout();
+    } finally {
+      try {
+        document.cookie = "auth_token=; Path=/; Max-Age=0; SameSite=Lax";
+        document.cookie = "user=; Path=/; Max-Age=0; SameSite=Lax";
+      } catch {}
+      closeAllMenus();
+      router.push("/");
+    }
   };
 
-  // Toggle account dropdown
   const toggleAccountDropdown = () => {
-    setAccountDropdownOpen(!accountDropdownOpen);
+    setAccountDropdownOpen((v) => !v);
     setSearchOpen(false);
   };
 
-  // Navigate to account page
   const goToAccount = () => {
     router.push("/account");
     closeAllMenus();
@@ -166,8 +168,8 @@ export default function Header() {
     { href: "/western", label: "Western", icon: "👗" },
     { href: "/sale", label: "Sale", icon: "🔥", highlight: true },
     { href: "/account", label: "My Account", icon: "👤" },
-    { href: "/wishlist", label: `Wishlist`, icon: "❤️" },
-    { href: "/cart", label: `Shopping Cart`, icon: "🛒" },
+    { href: "/wishlist", label: "Wishlist", icon: "❤️" },
+    { href: "/cart", label: "Shopping Cart", icon: "🛒" },
   ];
 
   const quickSearchTerms = [
@@ -182,50 +184,63 @@ export default function Header() {
 
   return (
     <>
-      {/* Announcement Bar (hidden) */}
-      <div className="hidden bg-gradient-to-r from-gray-900 to-gray-800 text-white text-sm py-3 px-4 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-5" aria-hidden>
-          <div className="absolute top-2 left-10">✨</div>
-          <div className="absolute top-1 right-20">⭐</div>
-          <div className="absolute bottom-1 left-1/4">💫</div>
-        </div>
-      </div>
-
       {/* Main Header */}
       <header
         className={`fixed top-0 w-full z-50 transition-all duration-500 ${
-          scrolled ? "bg-white/95 backdrop-blur-xl shadow-2xl border-b border-gray-100" : "bg-white border-b border-gray-100"
+          scrolled
+            ? "bg-white/95 backdrop-blur-xl shadow-2xl border-b border-gray-100"
+            : "bg-white border-b border-gray-100"
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-[var(--header-offset)]">
-            {/* Logo */}
-            <Link
-              href="/"
-              className="flex items-center group transition-all duration-500 flex-shrink-0"
-              onClick={closeAllMenus}
-            >
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-600 to-amber-800 rounded-full blur-md opacity-20 group-hover:opacity-30 transition-opacity duration-500" />
-                <Image
-                  src="/logo.png"
-                  alt="Nazmi Boutique - Premium Fashion"
-                  width={56}
-                  height={56}
-                  priority
-                  className="relative rounded-full border-2 border-amber-200 shadow-lg transition-all duration-500 group-hover:scale-105 group-hover:border-amber-300 group-hover:shadow-xl"
-                />
-                <div className="absolute -inset-1 bg-gradient-to-r from-amber-400 to-amber-600 rounded-full opacity-0 group-hover:opacity-20 blur transition-opacity duration-500" />
-              </div>
-              <div className="ml-4">
-                <span className="text-2xl font-serif font-bold text-gray-900 tracking-wider block leading-tight">
-                  NAZMI
-                </span>
-                <span className="text-xs text-amber-700 font-medium tracking-widest uppercase bg-amber-50 px-2 py-1 rounded-full">
-                  Luxury Boutique
-                </span>
-              </div>
-            </Link>
+            {/* LEFT: Mobile Menu + Logo (menu always visible on mobile) */}
+            <div className="flex items-center">
+              {/* Mobile Menu Button (placed BEFORE logo so it never gets pushed off-screen) */}
+              <button
+                onClick={() => {
+                  setMobileMenuOpen((v) => !v);
+                  setSearchOpen(false);
+                  setAccountDropdownOpen(false);
+                }}
+                className="lg:hidden mr-1 p-3 text-gray-900 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50 shrink-0"
+                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              >
+                {mobileMenuOpen ? (
+                  <X className="w-7 h-7" strokeWidth={2.5} />
+                ) : (
+                  <Menu className="w-7 h-7" strokeWidth={2.5} />
+                )}
+              </button>
+
+              {/* Logo */}
+              <Link
+                href="/"
+                className="flex items-center group transition-all duration-500 flex-shrink-0"
+                onClick={closeAllMenus}
+              >
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-600 to-amber-800 rounded-full blur-md opacity-20 group-hover:opacity-30 transition-opacity duration-500" />
+                  <Image
+                    src="/logo.png"
+                    alt="Nazmi Boutique - Premium Fashion"
+                    width={48}
+                    height={48}
+                    priority
+                    className="relative rounded-full border-2 border-amber-200 shadow-lg transition-all duration-500 group-hover:scale-105 group-hover:border-amber-300 group-hover:shadow-xl"
+                  />
+                  <div className="absolute -inset-1 bg-gradient-to-r from-amber-400 to-amber-600 rounded-full opacity-0 group-hover:opacity-20 blur transition-opacity duration-500" />
+                </div>
+                <div className="ml-3">
+                  <span className="text-xl lg:text-2xl font-serif font-bold text-gray-900 tracking-wider block leading-tight">
+                    NAZMI
+                  </span>
+                  <span className="hidden sm:inline-block text-[10px] lg:text-xs text-amber-700 font-medium tracking-widest uppercase bg-amber-50 px-2 py-1 rounded-full">
+                    Luxury Boutique
+                  </span>
+                </div>
+              </Link>
+            </div>
 
             {/* Desktop Navigation */}
             <nav className="hidden lg:flex items-center space-x-1">
@@ -284,13 +299,13 @@ export default function Header() {
               ))}
             </nav>
 
-            {/* Action Icons */}
-            <div className="flex items-center space-x-2 sm:space-x-4">
-              {/* Search (with outside click close) */}
+            {/* RIGHT: Action Icons */}
+            <div className="flex items-center space-x-1 sm:space-x-3">
+              {/* Search */}
               <div className="relative" ref={searchWrapRef}>
                 <button
                   onClick={() => setSearchOpen((v) => !v)}
-                  className="relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 group rounded-2xl hover:bg-amber-50"
+                  className="relative p-3 text-gray-700 hover:text-amber-600 transition-all duration-300 group rounded-2xl hover:bg-amber-50"
                   aria-label="Search products"
                 >
                   <Search className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
@@ -340,31 +355,34 @@ export default function Header() {
                 )}
               </div>
 
-              {/* Account - FIXED: Click goes to account page, hover shows dropdown */}
-              <div className="relative" ref={accountDropdownRef}>
+              {/* Account (desktop) */}
+              <div className="relative hidden sm:block" ref={accountDropdownRef}>
                 <button
-                  onClick={goToAccount} // CHANGED: Now goes directly to account page
-                  onMouseEnter={() => setAccountDropdownOpen(true)} // ADDED: Show dropdown on hover
-                  onMouseLeave={() => setAccountDropdownOpen(false)} // ADDED: Hide dropdown on mouse leave
-                  className="relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50 hidden sm:block"
+                  onClick={goToAccount}
+                  onMouseEnter={() => setAccountDropdownOpen(true)}
+                  onMouseLeave={() => setAccountDropdownOpen(false)}
+                  className="relative p-3 text-gray-700 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50"
                   aria-label="My account"
                 >
                   <User className="w-5 h-5 transition-transform duration-300" />
                   <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
                 </button>
-                
-                {/* Account dropdown - Shows on hover */}
+
                 {accountDropdownOpen && (
-                  <div 
-                    className="absolute top-14 right-0 w-48 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50"
-                    onMouseEnter={() => setAccountDropdownOpen(true)} // ADDED: Keep dropdown open when hovering over it
-                    onMouseLeave={() => setAccountDropdownOpen(false)} // ADDED: Close dropdown when mouse leaves
+                  <div
+                    className="absolute top-14 right-0 w-52 bg-white rounded-xl shadow-2xl border border-gray-100 py-2 z-50"
+                    onMouseEnter={() => setAccountDropdownOpen(true)}
+                    onMouseLeave={() => setAccountDropdownOpen(false)}
                   >
                     {isAuthenticated ? (
                       <>
                         <div className="px-4 py-2 border-b border-gray-100">
-                          <p className="text-sm font-semibold text-gray-900">{user?.firstName} {user?.lastName}</p>
-                          <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                          <p className="text-sm font-semibold text-gray-900">
+                            {user?.firstName} {user?.lastName}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {user?.email}
+                          </p>
                         </div>
                         <Link
                           href="/account"
@@ -405,7 +423,7 @@ export default function Header() {
               {/* Wishlist */}
               <Link
                 href="/wishlist"
-                className="relative p-3 text-gray-600 hover:text-red-500 transition-all duration-300 group rounded-2xl hover:bg-red-50"
+                className="relative p-3 text-gray-700 hover:text-red-500 transition-all duration-300 group rounded-2xl hover:bg-red-50"
                 onClick={closeAllMenus}
                 aria-label={`Wishlist with ${wishlistCount} items`}
               >
@@ -425,7 +443,7 @@ export default function Header() {
               {/* Cart */}
               <Link
                 href="/cart"
-                className="relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 group rounded-2xl hover:bg-amber-50"
+                className="relative p-3 text-gray-700 hover:text-amber-600 transition-all duration-300 group rounded-2xl hover:bg-amber-50"
                 onClick={closeAllMenus}
                 aria-label={`Shopping cart with ${cartCount} items`}
               >
@@ -437,108 +455,87 @@ export default function Header() {
                 )}
                 <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
               </Link>
-
-              {/* Mobile Menu Button */}
-              <button
-                onClick={() => {
-                  setMobileMenuOpen((v) => !v);
-                  setSearchOpen(false);
-                  setAccountDropdownOpen(false);
-                }}
-                className="lg:hidden relative p-3 text-gray-600 hover:text-amber-600 transition-all duration-300 rounded-2xl hover:bg-amber-50 group"
-                aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-              >
-                {mobileMenuOpen ? (
-                  <X className="w-6 h-6" />
-                ) : (
-                  <Menu className="w-6 h-6" />
-                )}
-                <div className="absolute inset-0 bg-amber-500/10 rounded-2xl scale-0 group-hover:scale-100 transition-transform duration-300" />
-              </button>
             </div>
           </div>
         </div>
-
-        {/* Mobile Menu */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden fixed top-[var(--header-offset)] left-0 right-0 bottom-0 bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-2xl animate-in slide-in-from-top duration-300 z-40 overflow-y-auto">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-2">
-              {mobileNavItems.map(({ href, label, icon, highlight }) => (
-                <Link
-                  key={href + label}
-                  href={href}
-                  className={`flex items-center py-4 px-6 text-lg font-medium transition-all duration-300 rounded-2xl group ${
-                    isActiveLink(href)
-                      ? highlight
-                        ? "bg-gradient-to-r from-red-50 to-red-100 text-red-700 border-l-4 border-red-500 shadow-sm"
-                        : "bg-gradient-to-r from-amber-50 to-amber-100 text-amber-700 border-l-4 border-amber-500 shadow-sm font-semibold"
-                      : highlight
-                      ? "text-red-600 hover:bg-red-50 hover:text-red-700"
-                      : "text-gray-600 hover:bg-gradient-to-r hover:from-amber-50 hover:to-amber-100 hover:text-amber-700"
-                  }`}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  <span className="text-2xl mr-4 transition-transform duration-300 group-hover:scale-110">
-                    {icon}
-                  </span>
-                  <span className="flex-1">{label}</span>
-                  {isClient && label === "Wishlist" && wishlistCount > 0 && (
-                    <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-semibold">
-                      {wishlistCount}
-                    </span>
-                  )}
-                  {isClient && label === "Shopping Cart" && cartCount > 0 && (
-                    <span className="bg-amber-500 text-white text-xs px-2 py-1 rounded-full font-semibold">
-                      {cartCount}
-                    </span>
-                  )}
-                  {highlight && (
-                    <span className="ml-2 px-2 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs rounded-full font-semibold animate-pulse">
-                      SALE
-                    </span>
-                  )}
-                </Link>
-              ))}
-              
-              {/* Auth section in mobile menu */}
-              {isAuthenticated ? (
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center py-4 px-6 text-lg text-red-600 hover:bg-red-50 transition-colors rounded-2xl text-left"
-                >
-                  <span className="text-2xl mr-4">🚪</span>
-                  <span>Sign Out</span>
-                </button>
-              ) : (
-                <>
-                  <Link
-                    href="/login"
-                    className="flex items-center py-4 px-6 text-lg text-gray-600 hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-2xl"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <span className="text-2xl mr-4">🔑</span>
-                    <span>Sign In</span>
-                  </Link>
-                  <Link
-                    href="/register"
-                    className="flex items-center py-4 px-6 text-lg text-gray-600 hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-2xl"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <span className="text-2xl mr-4">👤</span>
-                    <span>Create Account</span>
-                  </Link>
-                </>
-              )}
-            </div>
-          </div>
-        )}
       </header>
 
-      {/* Soft Glow Divider under header */}
-      <div className="fixed left-0 right-0 top-[var(--header-offset)] z-40 h-[3px] bg-black/40 shadow-[0_0_10px_rgba(0,0,0,0.5)] pointer-events-none" />
+      {/* Mobile Menu (full-screen) */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed top-[var(--header-offset)] left-0 right-0 bottom-0 bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-2xl animate-in slide-in-from-top duration-300 z-40 overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-2">
+            {mobileNavItems.map(({ href, label, icon, highlight }) => (
+              <Link
+                key={href + label}
+                href={href}
+                className={`flex items-center py-4 px-6 text-lg font-medium transition-all duration-300 rounded-2xl group ${
+                  isActiveLink(href)
+                    ? highlight
+                      ? "bg-gradient-to-r from-red-50 to-red-100 text-red-700 border-l-4 border-red-500 shadow-sm"
+                      : "bg-gradient-to-r from-amber-50 to-amber-100 text-amber-700 border-l-4 border-amber-500 shadow-sm font-semibold"
+                    : highlight
+                    ? "text-red-600 hover:bg-red-50 hover:text-red-700"
+                    : "text-gray-600 hover:bg-gradient-to-r hover:from-amber-50 hover:to-amber-100 hover:text-amber-700"
+                }`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <span className="text-2xl mr-4 transition-transform duration-300 group-hover:scale-110">
+                  {icon}
+                </span>
+                <span className="flex-1">{label}</span>
+                {isClient && label === "Wishlist" && wishlistCount > 0 && (
+                  <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-semibold">
+                    {wishlistCount}
+                  </span>
+                )}
+                {isClient && label === "Shopping Cart" && cartCount > 0 && (
+                  <span className="bg-amber-500 text-white text-xs px-2 py-1 rounded-full font-semibold">
+                    {cartCount}
+                  </span>
+                )}
+                {highlight && (
+                  <span className="ml-2 px-2 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs rounded-full font-semibold animate-pulse">
+                    SALE
+                  </span>
+                )}
+              </Link>
+            ))}
+
+            {/* Auth section in mobile menu */}
+            {isAuthenticated ? (
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center py-4 px-6 text-lg text-red-600 hover:bg-red-50 transition-colors rounded-2xl text-left"
+              >
+                <span className="text-2xl mr-4">🚪</span>
+                <span>Sign Out</span>
+              </button>
+            ) : (
+              <>
+                <Link
+                  href="/auth/login"
+                  className="flex items-center py-4 px-6 text-lg text-gray-600 hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-2xl"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <span className="text-2xl mr-4">🔑</span>
+                  <span>Sign In</span>
+                </Link>
+                <Link
+                  href="/auth/register"
+                  className="flex items-center py-4 px-6 text-lg text-gray-600 hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-2xl"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <span className="text-2xl mr-4">👤</span>
+                  <span>Create Account</span>
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Spacer for fixed header */}
-      <div className="h-[var(--header-offset)]" />
+      <div className="h-[calc(var(--header-offset)+40px)] lg:h-[var(--header-offset)]" />
     </>
   );
 }

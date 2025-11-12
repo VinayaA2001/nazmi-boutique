@@ -65,20 +65,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
- const login = async (emailOrPhone: string, password: string) => {
-  // decide whether it's a phone number or email
-  const digits = emailOrPhone.replace(/\D/g, "");
-  const isPhone = /^[6-9]\d{9}$/.test(digits);
-
-  const payload =
-    isPhone
-      ? { phone: digits, password }                            // ✅ phone key
-      : { email: emailOrPhone.trim().toLowerCase(), password } // ✅ email key
-
+  const login = async (email: string, password: string) => {
   const res = await fetch(`/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
   });
 
   const data = await safeJson(res);
@@ -92,16 +83,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   setToken(data.token);
   setUser(data.user);
   localStorage.setItem("auth_token", data.token);
-  localStorage.setItem("auth_user", JSON.stringify(data.user));
+  localStorage.setItem("auth_user", JSON.stringify(data.user || {}));
   try {
     const maxAge = 7 * 24 * 60 * 60;
     const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
     document.cookie = `auth_token=${encodeURIComponent(data.token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+    document.cookie = `user=${encodeURIComponent(JSON.stringify(data.user || {}))}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
   } catch {}
 };
 
 
-  const register: AuthContextType["register"] = async ({
+    const register: AuthContextType["register"] = async ({
     firstName,
     lastName,
     email,
@@ -125,15 +117,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       err.field = data?.field;
       throw err;
     }
-    const identifier = (email ?? "").trim().toLowerCase() || (phone ?? "");
-    if (identifier) await login(identifier, password);
+    if (data?.token && data?.user) {
+      setToken(data.token);
+      setUser(data.user);
+      localStorage.setItem("auth_token", data.token);
+      localStorage.setItem("auth_user", JSON.stringify(data.user || {}));
+      try {
+        const maxAge = 7 * 24 * 60 * 60;
+        const secure = typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
+        document.cookie = `auth_token=${encodeURIComponent(data.token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+        document.cookie = `user=${encodeURIComponent(JSON.stringify(data.user || {}))}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+      } catch {}
+    } else {
+      const identifier = (email ?? "").trim().toLowerCase() || (phone ?? "");
+      if (identifier) await login(identifier, password);
+    }
   };
-
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem("auth_token");
-    localStorage.removeItem("auth_user");
+    try {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("auth_user");
+      document.cookie = "auth_token=; Path=/; Max-Age=0; SameSite=Lax";
+      document.cookie = "user=; Path=/; Max-Age=0; SameSite=Lax";
+    } catch {}
   };
 
   return (
