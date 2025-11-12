@@ -147,7 +147,7 @@ export default function ResetPasswordClient() {
 
       if (resetSuccess) {
         setTimeout(() => {
-          router.push("/login");
+          router.push("/auth/login");
         }, 1500);
       }
     } catch {
@@ -216,7 +216,7 @@ export default function ResetPasswordClient() {
                 Request New Reset Link
               </Link>
               <Link
-                href="/login"
+                href="/auth/login"
                 className="w-full border border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-semibold hover:bg-gray-50 transition-colors block"
               >
                 Back to Login
@@ -431,7 +431,7 @@ export default function ResetPasswordClient() {
             <p className="text-gray-600 text-sm">
               Remember your password?{" "}
               <Link
-                href="/login"
+                href="/auth/login"
                 className="font-semibold text-amber-600 hover:text-amber-700 transition-colors underline"
               >
                 Back to Sign In
