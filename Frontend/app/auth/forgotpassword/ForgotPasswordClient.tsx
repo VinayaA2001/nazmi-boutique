@@ -233,7 +233,7 @@ export default function ForgotPasswordClient() {
           <div className="mt-6 text-center">
             <p className="text-gray-600 text-sm">
               Remember your password?{" "}
-              <Link href="/login" className="font-semibold text-amber-600 hover:text-amber-700 underline">
+              <Link href="/auth/login" className="font-semibold text-amber-600 hover:text-amber-700 underline">
                 Back to Sign In
               </Link>
             </p>

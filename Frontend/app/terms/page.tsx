@@ -23,7 +23,7 @@ export default function TermsPage() {
             <nav className="flex gap-6 text-sm">
               <Link href="/" className="text-gray-600 hover:text-gray-900">Home</Link>
               <Link href="/products" className="text-gray-600 hover:text-gray-900">Shop</Link>
-              <Link href="/login" className="text-gray-600 hover:text-gray-900">Sign In</Link>
+              <Link href="/auth/login" className="text-gray-600 hover:text-gray-900">Sign In</Link>
             </nav>
           </div>
         </div>
