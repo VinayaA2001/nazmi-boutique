@@ -195,7 +195,7 @@ function RelatedProductsClient({
   currentId,
   currentSlug,
   category,
-  limit = 12,
+  limit = 10,
   title = "Related Products",
 }: {
   currentId: string;
@@ -986,7 +986,7 @@ export default function ProductDetailPage() {
         currentId={product._id}
         currentSlug={product.slug || makeSlug(product)}
         category={product.category}
-        limit={20}
+        limit={10}
       />
 
       {/* ===== Fullscreen Lightbox with Zoom ===== */}

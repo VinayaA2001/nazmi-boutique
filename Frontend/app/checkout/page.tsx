@@ -39,7 +39,7 @@ const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_RZFeCq3N
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const SHIPPING_THRESHOLD = 2000;
 const SHIPPING_FEE = 60;
-const inr = (n: number | string) => `â‚¹${Number(n || 0).toLocaleString("en-IN")}`;
+const inr = (n: number | string) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
 async function loadRazorpay(): Promise<boolean> {
   if (typeof window === "undefined") return false;
@@ -71,11 +71,11 @@ function CheckoutContent() {
   });
 
   // Determine login redirect target
-  const [loginUrl, setLoginUrl] = useState("/auth/login?next=%2Fcheckout");
+  const [loginUrl, setLoginUrl] = useState("/auth/login?redirect=%2Fcheckout");
   useEffect(() => {
     if (typeof window === "undefined") return;
     const qs = window.location.search || "";
-    setLoginUrl(`/auth/login?next=${encodeURIComponent(`/checkout${qs}`)}`);
+    setLoginUrl(`/auth/login?redirect=${encodeURIComponent(`/checkout${qs}`)}`);
   }, []);
 
   useEffect(() => {
@@ -226,7 +226,7 @@ function CheckoutContent() {
         pincode: shipping.pincode,
       }));
 
-      const token = localStorage.getItem("auth_token"); // â† your auth token key
+      const token = localStorage.getItem("auth_token"); // <- your auth token key
 
       // 1) Create internal order (associate to user if token present)
       const orderRes = await fetch(`${API_BASE}/api/orders`, {
@@ -404,7 +404,7 @@ function CheckoutContent() {
               <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
             </div>
             <p className="text-xs text-gray-700">
-              <span className="font-semibold">Returns for damage only</span> â€” Live video verification required{" "}
+              <span className="font-semibold">Returns for damage only</span>  —  Live video verification required{" "}
               <Video className="inline w-3 h-3 text-gray-500 ml-1" />
             </p>
           </div>
@@ -412,13 +412,13 @@ function CheckoutContent() {
             <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
               <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
             </div>
-            <p className="text-xs text-gray-700"><span className="font-semibold">24-hour reporting</span> â€” Contact support immediately</p>
+            <p className="text-xs text-gray-700"><span className="font-semibold">24-hour reporting</span>  —  Contact support immediately</p>
           </div>
           <div className="flex items-start gap-2">
             <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
               <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
             </div>
-            <p className="text-xs text-gray-700"><span className="font-semibold">Original packaging</span> â€” Keep tags and packaging intact</p>
+            <p className="text-xs text-gray-700"><span className="font-semibold">Original packaging</span>  —  Keep tags and packaging intact</p>
           </div>
         </div>
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
@@ -457,9 +457,9 @@ function CheckoutContent() {
               <div className="flex-1">
                 <p className="text-sm font-medium text-gray-900 line-clamp-2">{item.name}</p>
                 <p className="text-xs text-gray-500">
-                  {item.size && `Size: ${item.size}`} {item.size && item.color && "â€¢"} {item.color && `Color: ${item.color}`}
+                  {item.size && `Size: ${item.size}`} {item.size && item.color && " • "} {item.color && `Color: ${item.color}`}
                 </p>
-                <p className="text-xs text-gray-500">Qty: {item.quantity} â€¢ Code: {item.productCode}</p>
+                <p className="text-xs text-gray-500">Qty: {item.quantity}  •  Code: {item.productCode}</p>
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold text-gray-900">{inr(item.price * item.quantity)}</p>
@@ -484,7 +484,7 @@ function CheckoutContent() {
         </div>
         <div className="mt-4 flex items-center gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-2.5">
           <Truck className="w-4 h-4 text-gray-600" />
-          <p className="text-xs text-gray-600">Estimated delivery <span className="font-medium">3â€“7 working days</span> across Kerala.</p>
+          <p className="text-xs text-gray-600">Estimated delivery <span className="font-medium">3–7 working days</span> across Kerala.</p>
         </div>
       </div>
       <DamagedProductsPolicy />
@@ -496,7 +496,7 @@ function CheckoutContent() {
       <section className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center space-y-3">
           <div className="w-16 h-16 border-4 border-black border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-gray-600">Checking your session…</p>
+          <p className="text-gray-600">Checking your session</p>
         </div>
       </section>
     );
@@ -659,6 +659,11 @@ export default function CheckoutPage() {
     </Suspense>
   );
 }
+
+
+
+
+
 
 
 

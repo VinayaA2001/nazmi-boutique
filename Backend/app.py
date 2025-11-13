@@ -828,6 +828,52 @@ def get_product(product_id):
         logging.exception("Product detail error")
         return jsonify({"error": "Failed to fetch product"}), 500
 
+
+def _auto_save_address_for_user(user: dict | None, shipping_address: dict | None):
+    """Persist checkout address into saved addresses so it can be reused."""
+    if not user or not shipping_address:
+        return
+    user_id = user.get("_id")
+    if not isinstance(user_id, ObjectId):
+        try:
+            user_id = ObjectId(user_id)
+        except Exception:
+            return
+    addresses = user.get("addresses") or []
+    normalized = {
+        "fullName": (shipping_address.get("fullName") or shipping_address.get("name") or "").strip(),
+        "phone": (shipping_address.get("phone") or "").strip(),
+        "line1": (shipping_address.get("line1") or "").strip(),
+        "line2": (shipping_address.get("line2") or "").strip(),
+        "city": (shipping_address.get("city") or "").strip(),
+        "state": (shipping_address.get("state") or "").strip(),
+        "pincode": (shipping_address.get("pincode") or "").strip(),
+        "country": (shipping_address.get("country") or "India").strip(),
+    }
+    if not normalized["line1"] or not normalized["city"]:
+        return
+    def _same(addr: dict) -> bool:
+        return (addr.get("phone", "").strip() == normalized["phone"] and addr.get("line1", "").strip().lower() == normalized["line1"].lower() and addr.get("pincode", "").strip() == normalized["pincode"])
+    updated = False
+    for addr in addresses:
+        if _same(addr):
+            addr.update(normalized)
+            addr.setdefault("_id", str(addr.get("_id") or ObjectId()))
+            updated = True
+            break
+    if not updated:
+        normalized["_id"] = str(ObjectId())
+        normalized["createdAt"] = int(datetime.utcnow().timestamp())
+        if not addresses:
+            normalized["isDefault"] = True
+        addresses.append(normalized)
+        if normalized.get("isDefault"):
+            for other in addresses:
+                if other is not normalized:
+                    other["isDefault"] = False
+    db.users.update_one({"_id": user_id}, {"$set": {"addresses": addresses}})
+
+
 # ==================== ORDERS ====================
 @app.post("/api/orders")
 def create_order():
@@ -869,6 +915,13 @@ def create_order():
             "state": data.get("shipping_state", ""),
             "pincode": data.get("shipping_pincode", "")
         }
+
+        if current_user:
+            try:
+                _auto_save_address_for_user(current_user, shipping_address)
+            except Exception:
+                app.logger.exception("auto-save address failed")
+
 
         order_data = {
             "order_number": f"ORD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
