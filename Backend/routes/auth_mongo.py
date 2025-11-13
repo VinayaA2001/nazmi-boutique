@@ -5,6 +5,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from bson import ObjectId
 import jwt, secrets, re
 
+EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"  # local part
+    r"(?:[A-Za-z0-9-]+\.)+"                # subdomains
+    r"[A-Za-z]{2,}$"                       # TLD
+)
+
 auth_bp = Blueprint("auth_mongo", __name__, url_prefix="/api/auth")
 
 def _db():
@@ -60,6 +66,8 @@ def register():
     password = data.get("password")
     if not username or not email or not password:
         return jsonify({"error": "username, email, password are required"}), 400
+    if not EMAIL_RE.fullmatch(email):
+        return jsonify({"error": "Please enter a valid email address"}), 400
     if _db().users.find_one({"email": email}):
         return jsonify({"error": "User already exists with this email"}), 400
 

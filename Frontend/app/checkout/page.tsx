@@ -1,10 +1,11 @@
-// app/checkout/page.tsx
+﻿// app/checkout/page.tsx
 "use client";
 
 import { useState, useEffect, Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { ArrowLeft, CreditCard, Shield, Truck, X, Video } from "lucide-react";
+import { ArrowLeft, CreditCard, Shield, Truck, X, Video, Lock } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 interface CartItem {
   id: string;
@@ -38,7 +39,7 @@ const RZP_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_RZFeCq3N
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const SHIPPING_THRESHOLD = 2000;
 const SHIPPING_FEE = 60;
-const inr = (n: number | string) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
+const inr = (n: number | string) => `â‚¹${Number(n || 0).toLocaleString("en-IN")}`;
 
 async function loadRazorpay(): Promise<boolean> {
   if (typeof window === "undefined") return false;
@@ -56,6 +57,7 @@ async function loadRazorpay(): Promise<boolean> {
 function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAuthenticated, loading: authLoading, user } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -68,21 +70,23 @@ function CheckoutContent() {
     address1: "", city: "", state: "", pincode: "", country: "India",
   });
 
-  // Prefill user
+  // Determine login redirect target
+  const [loginUrl, setLoginUrl] = useState("/auth/login?next=%2Fcheckout");
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("auth_user");
-      if (saved) {
-        const u = JSON.parse(saved);
-        setShipping((s) => ({
-          ...s,
-          name: s.name || [u?.firstName, u?.lastName].filter(Boolean).join(" ") || "",
-          email: s.email || u?.email || "",
-          phone: s.phone || (u?.phone ? String(u.phone) : ""),
-        }));
-      }
-    } catch {}
+    if (typeof window === "undefined") return;
+    const qs = window.location.search || "";
+    setLoginUrl(`/auth/login?next=${encodeURIComponent(`/checkout${qs}`)}`);
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    setShipping((s) => ({
+      ...s,
+      name: s.name || [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || "",
+      email: s.email || user.email || "",
+      phone: s.phone || (user.phone ? String(user.phone) : ""),
+    }));
+  }, [isAuthenticated, user]);
 
   // Health
   useEffect(() => {
@@ -198,9 +202,17 @@ function CheckoutContent() {
 
   // === Pay with Razorpay (and attach user token if present) ===
   const payWithRazorpay = async () => {
-    if (backendStatus === "offline") return alert("🚨 Backend server is currently offline. Please try again later.");
-    if (!cartItems.length) { alert("Your cart is empty."); router.push("/cart"); return; }
+    if (backendStatus === "offline") {
+      alert("Backend server is currently offline. Please try again later.");
+      return;
+    }
+    if (!cartItems.length) {
+      alert("Your cart is empty.");
+      router.push("/cart");
+      return;
+    }
     if (!validateShippingDetails()) return;
+
 
     setLoading(true);
     try {
@@ -214,7 +226,7 @@ function CheckoutContent() {
         pincode: shipping.pincode,
       }));
 
-      const token = localStorage.getItem("auth_token"); // ← your auth token key
+      const token = localStorage.getItem("auth_token"); // â† your auth token key
 
       // 1) Create internal order (associate to user if token present)
       const orderRes = await fetch(`${API_BASE}/api/orders`, {
@@ -392,7 +404,7 @@ function CheckoutContent() {
               <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
             </div>
             <p className="text-xs text-gray-700">
-              <span className="font-semibold">Returns for damage only</span> — Live video verification required{" "}
+              <span className="font-semibold">Returns for damage only</span> â€” Live video verification required{" "}
               <Video className="inline w-3 h-3 text-gray-500 ml-1" />
             </p>
           </div>
@@ -400,13 +412,13 @@ function CheckoutContent() {
             <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
               <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
             </div>
-            <p className="text-xs text-gray-700"><span className="font-semibold">24-hour reporting</span> — Contact support immediately</p>
+            <p className="text-xs text-gray-700"><span className="font-semibold">24-hour reporting</span> â€” Contact support immediately</p>
           </div>
           <div className="flex items-start gap-2">
             <div className="w-4 h-4 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
               <div className="w-1.5 h-1.5 bg-green-600 rounded-full"></div>
             </div>
-            <p className="text-xs text-gray-700"><span className="font-semibold">Original packaging</span> — Keep tags and packaging intact</p>
+            <p className="text-xs text-gray-700"><span className="font-semibold">Original packaging</span> â€” Keep tags and packaging intact</p>
           </div>
         </div>
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
@@ -445,9 +457,9 @@ function CheckoutContent() {
               <div className="flex-1">
                 <p className="text-sm font-medium text-gray-900 line-clamp-2">{item.name}</p>
                 <p className="text-xs text-gray-500">
-                  {item.size && `Size: ${item.size}`} {item.size && item.color && "•"} {item.color && `Color: ${item.color}`}
+                  {item.size && `Size: ${item.size}`} {item.size && item.color && "â€¢"} {item.color && `Color: ${item.color}`}
                 </p>
-                <p className="text-xs text-gray-500">Qty: {item.quantity} • Code: {item.productCode}</p>
+                <p className="text-xs text-gray-500">Qty: {item.quantity} â€¢ Code: {item.productCode}</p>
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold text-gray-900">{inr(item.price * item.quantity)}</p>
@@ -472,12 +484,41 @@ function CheckoutContent() {
         </div>
         <div className="mt-4 flex items-center gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-2.5">
           <Truck className="w-4 h-4 text-gray-600" />
-          <p className="text-xs text-gray-600">Estimated delivery <span className="font-medium">3–7 working days</span> across Kerala.</p>
+          <p className="text-xs text-gray-600">Estimated delivery <span className="font-medium">3â€“7 working days</span> across Kerala.</p>
         </div>
       </div>
       <DamagedProductsPolicy />
     </div>
   );
+
+  if (authLoading) {
+    return (
+      <section className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center space-y-3">
+          <div className="w-16 h-16 border-4 border-black border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-gray-600">Checking your session…</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <section className="min-h-screen bg-[#fbfaf8] flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-white border border-gray-100 rounded-2xl shadow-xl p-6 space-y-4 text-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-gray-900 text-white flex items-center justify-center"><Lock className="w-5 h-5" /></div>
+            <h1 className="text-xl font-semibold text-gray-900">Sign in to continue</h1>
+            <p className="text-sm text-gray-600">Checkout – Nazmi Boutique account so we can save your address, apply offers, and track your orders.</p>
+          </div>
+          <button className="w-full bg-black text-white py-3 rounded-lg font-semibold hover:bg-gray-800 transition" onClick={() => router.push(loginUrl)}>
+            Sign in now
+          </button>
+          <p className="text-xs text-gray-500">Don&apos;t have an account? You can create one on the next screen in a few seconds.</p>
+        </div>
+      </section>
+    );
+  }
 
   if (!cartItems.length) {
     return (
@@ -618,6 +659,17 @@ export default function CheckoutPage() {
     </Suspense>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

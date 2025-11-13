@@ -1,4 +1,4 @@
-# backend/app.py
+﻿# backend/app.py
 import os
 import re
 import hmac
@@ -16,6 +16,7 @@ from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from bson import ObjectId
+from bson.errors import InvalidId
 import razorpay
 import jwt
 
@@ -60,6 +61,59 @@ rzp = (
     if (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
     else None
 )
+EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"(?:[A-Za-z0-9-]+\.)+"
+    r"[A-Za-z]{2,}$"
+)
+EMAIL_VERIFICATION_MINUTES = int(os.getenv("EMAIL_VERIFICATION_MINUTES", "30"))
+
+
+def _new_verification_token():
+    token = secrets.token_urlsafe(48)
+    expires = datetime.utcnow() + timedelta(minutes=EMAIL_VERIFICATION_MINUTES)
+    return token, expires
+
+
+def _verification_link(token: str) -> str:
+    base = app.config.get("FRONTEND_URL") or FRONTEND_URL
+    base = (base or "").rstrip("/") or "http://localhost:3000"
+    return f"{base}/verify?token={token}"
+
+
+def _send_verification_email(recipient: str, token: str):
+    verify_url = _verification_link(token)
+    subject = "Verify your email for Nazmi Boutique"
+    text_body = (
+        "Hi,\n\n"
+        "Thanks for creating an account with Nazmi Boutique.\n\n"
+        "Please confirm your email address by clicking the link below:\n"
+        f"{verify_url}\n\n"
+        f"This link expires in {EMAIL_VERIFICATION_MINUTES} minutes.\n\n"
+        "If you did not create this account, you can ignore this email.\n\n"
+        "— Nazmi Boutique"
+    )
+    html_body = f"""
+    <p>Hi,</p>
+    <p>Thanks for creating an account with <strong>Nazmi Boutique</strong>.</p>
+    <p>Please confirm your email address by clicking the button below:</p>
+    <p style='margin:24px 0'>
+      <a href='{verify_url}' style='background:#000;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600'>
+        Verify email
+      </a>
+    </p>
+    <p>Or use this link:<br><a href='{verify_url}'>{verify_url}</a></p>
+    <p>This link expires in {EMAIL_VERIFICATION_MINUTES} minutes.</p>
+    <p>If you did not create this account, you can safely ignore this email.</p>
+    <p>— Nazmi Boutique</p>
+    """
+    msg = Message(subject=subject, recipients=[recipient])
+    msg.body = text_body
+    msg.html = html_body
+    mail.send(msg)
+
+
+
 
 # ==================== HELPERS ====================
 def make_jwt(payload: dict, expires_days: int = 7):
@@ -154,7 +208,7 @@ def _check_and_migrate_password(user, provided_password):
     if not ok:
         return False
 
-    # migrate plain → pbkdf2
+    # migrate plain â†’ pbkdf2
     if not (_looks_pbkdf2(user.get("password", "")) or _looks_scrypt(user.get("password", ""))):
         new_hash = generate_password_hash(provided_password)
         update = {"$set": {"password": new_hash}}
@@ -180,7 +234,7 @@ def any_options(_any):
 @app.route("/")
 def root():
     return jsonify({
-        "message": "🚀 NAZMI Boutique API is running!",
+        "message": "ðŸš€ NAZMI Boutique API is running!",
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "endpoints": {
@@ -251,29 +305,42 @@ def register():
         email = (data.get("email") or "").strip().lower()
         password = data.get("password")
         username = (data.get("username") or "").strip()
+        phone = (data.get("phone") or "").strip()
 
         if not email or not password or not username:
             return jsonify({"error": "username, email, password are required"}), 400
+        if not EMAIL_RE.fullmatch(email):
+            return jsonify({"error": "Please enter a valid email address"}), 400
 
         if db.users.find_one({"email": email}):
             return jsonify({"error": "User already exists with this email"}), 400
 
+        verification_token, verification_expires = _new_verification_token()
         user_data = {
             "username": username,
             "email": email,
+            "phone": phone,
             "password": generate_password_hash(password),
             "created_at": datetime.utcnow(),
-            "is_active": True,
+            "is_active": False,
             "is_admin": False,
-            "profile": {"phone": "", "address": ""}
+            "email_verified": False,
+            "profile": {"phone": phone, "address": ""},
+            "verification_token": verification_token,
+            "verification_expires": verification_expires,
         }
         result = db.users.insert_one(user_data)
-        token = make_jwt({"user_id": str(result.inserted_id)})
+
+        try:
+            _send_verification_email(email, verification_token)
+        except Exception:
+            logging.exception("Verification email send error")
+            db.users.delete_one({"_id": result.inserted_id})
+            return jsonify({"error": "Failed to send verification email. Please try again."}), 500
 
         return jsonify({
-            "message": "User registered successfully",
-            "token": token,
-            "user": {"id": str(result.inserted_id), "username": username, "email": email}
+            "message": "Account created. Check your email to verify before signing in.",
+            "requiresVerification": True,
         }), 201
     except Exception:
         logging.exception("Registration error")
@@ -301,6 +368,7 @@ def seed_admin():
             "created_at": datetime.utcnow(),
             "is_active": True,
             "is_admin": True,
+            "email_verified": True,
         }
         res = db.users.insert_one(user)
         token = make_jwt({"user_id": str(res.inserted_id)})
@@ -328,6 +396,9 @@ def login():
         if not _check_and_migrate_password(user, password):
             return jsonify({"error": "Invalid email or password"}), 401
 
+        if not user.get("email_verified", True):
+            return jsonify({"error": "Please verify your email before logging in", "code": "EMAIL_NOT_VERIFIED"}), 403
+
         token = make_jwt({"user_id": str(user["_id"])})
         return jsonify({
             "message": "Login successful",
@@ -337,6 +408,70 @@ def login():
     except Exception:
         logging.exception("Login error")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.post("/api/auth/verify-email")
+def verify_email():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        token = (data.get("token") or "").strip()
+        if not token:
+            return jsonify({"error": "Verification token is required"}), 400
+
+        user = db.users.find_one({"verification_token": token})
+        if not user:
+            return jsonify({"error": "Invalid or expired verification token"}), 400
+
+        expires = user.get("verification_expires")
+        if expires and expires < datetime.utcnow():
+            return jsonify({"error": "Verification token has expired"}), 400
+
+        db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"email_verified": True, "is_active": True}, "$unset": {"verification_token": "", "verification_expires": ""}}
+        )
+        token_jwt = make_jwt({"user_id": str(user["_id"])})
+        user_payload = {
+            "id": str(user["_id"]),
+            "username": user.get("username", ""),
+            "email": user.get("email", ""),
+            "profile": user.get("profile", {}),
+        }
+        return jsonify({"message": "Email verified successfully", "token": token_jwt, "user": user_payload})
+    except Exception:
+        logging.exception("Email verification error")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.post("/api/auth/resend-verification")
+def resend_verification():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        email = (data.get("email") or "").strip().lower()
+        if not email or not EMAIL_RE.fullmatch(email):
+            return jsonify({"error": "Please provide a valid email"}), 400
+
+        user = db.users.find_one({"email": email})
+        if not user:
+            return jsonify({"message": "If an account exists we sent a verification email."}), 200
+        if user.get("email_verified"):
+            return jsonify({"message": "Email is already verified."}), 200
+
+        token, expires = _new_verification_token()
+        db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"verification_token": token, "verification_expires": expires}}
+        )
+        try:
+            _send_verification_email(email, token)
+        except Exception:
+            logging.exception("Resend verification email error")
+            return jsonify({"error": "Failed to send verification email"}), 500
+
+        return jsonify({"message": "Verification email sent."})
+    except Exception:
+        logging.exception("Resend verification error")
+        return jsonify({"error": "Internal server error"}), 500
+
 
 @app.get("/api/auth/profile")
 @token_required
@@ -535,9 +670,9 @@ SHOP_EMAIL = "nazmiboutique1@gmail.com"
 
 def _fmt_money(n):
     try:
-        return f"₹{float(n):,.2f}"
+        return f"â‚¹{float(n):,.2f}"
     except Exception:
-        return f"₹{n}"
+        return f"â‚¹{n}"
 
 def _order_items_table(items):
     rows = []
@@ -561,7 +696,7 @@ def _order_items_table(items):
 
 def send_shop_new_order_email(order: dict):
     try:
-        subject = f"🛒 New Order Received: {order.get('order_number')}"
+        subject = f"ðŸ›’ New Order Received: {order.get('order_number')}"
         items_html = _order_items_table(order.get("items", []))
         totals = f"""
             <tr><td>Items Subtotal</td><td style="text-align:right">{_fmt_money(order.get('subtotal', 0))}</td></tr>
@@ -625,18 +760,18 @@ def send_customer_order_confirmed_email(order: dict):
         email = (cust or {}).get("email")
         if not email:
             return
-        subject = f"✅ Your Order is Confirmed: {order.get('order_number')}"
+        subject = f"âœ… Your Order is Confirmed: {order.get('order_number')}"
         html = f"""
         <div style="font-family:Inter,system-ui,Arial,sans-serif">
             <h2>Order Confirmed</h2>
             <p>Hi {cust.get('name','')},</p>
             <p>Your order <strong>{order.get('order_number')}</strong> has been confirmed by Nazmi Boutique.</p>
-            <p>We’ll share shipping details soon. Thank you for shopping with us!</p>
-            <p style="margin-top:16px">— Team NAZMI</p>
+            <p>Weâ€™ll share shipping details soon. Thank you for shopping with us!</p>
+            <p style="margin-top:16px">â€” Team NAZMI</p>
         </div>
         """
         msg = Message(subject=subject, recipients=[email])
-        msg.body = f"Your order {order.get('order_number')} is confirmed. We’ll ship soon."
+        msg.body = f"Your order {order.get('order_number')} is confirmed. Weâ€™ll ship soon."
         msg.html = html
         _send_email_safe(msg)
     except Exception as e:
@@ -677,7 +812,14 @@ def get_product(product_id):
     try:
         if not check_db_connection():
             return jsonify({"error": "Database not connected"}), 500
-        product = db.products.find_one({"_id": ObjectId(product_id)})
+        try:
+            query = {"_id": ObjectId(product_id)}
+        except (InvalidId, TypeError):
+            query = {"$or": [
+                {"slug": product_id},
+                {"product_code": product_id}
+            ]}
+        product = db.products.find_one(query)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         product["_id"] = str(product["_id"])
@@ -825,7 +967,7 @@ def get_user_orders(current_user):
     try:
         if not check_db_connection():
             return jsonify({"error": "Database not connected"}), 500
-        orders = list(db.orders.find({"user_id": str(current_user["_id"])}).sort("created_at", -1))
+        orders = list(db.orders.find({"user_id": str(current_user["_id"]), "payment_status": "paid"}).sort("created_at", -1))
         for o in orders:
             o["_id"] = str(o["_id"])
         return jsonify(orders)
@@ -1121,6 +1263,10 @@ def payments_verify():
             send_customer_order_confirmed_email(order)
         except Exception:
             pass
+        try:
+            send_shop_payment_success_email(str(order["_id"]))
+        except Exception:
+            pass
 
     try:
         os.makedirs("instance/payments", exist_ok=True)
@@ -1151,8 +1297,55 @@ def payments_webhook():
 
     event = request.get_json(silent=True) or {}
     app.logger.info(f"Razorpay webhook: {event.get('event')}")
-    # Tip: You can extend here for idempotent event processing and refunds
-    return jsonify({"ok": True})
+
+    handled = False
+    if event.get("event") == "payment.captured":
+        handled = True
+        payment_entity = ((event.get("payload") or {}).get("payment", {})).get("entity", {}) or {}
+        notes = payment_entity.get("notes") or {}
+        ref_id = notes.get("order_id") or notes.get("mongo_order_id") or payment_entity.get("order_id")
+        order_number = notes.get("order_number")
+
+        order = None
+        if ref_id:
+            try:
+                order = db.orders.find_one({"_id": ObjectId(ref_id)})
+            except (InvalidId, TypeError):
+                order = None
+        if not order and order_number:
+            order = db.orders.find_one({"order_number": order_number})
+
+        if order and order.get("payment_status") != "paid":
+            db.orders.update_one(
+                {"_id": order["_id"]},
+                {"$set": {
+                    "payment_status": "paid",
+                    "status": "confirmed",
+                    "paid_at": datetime.utcnow(),
+                    "razorpay_payment_id": payment_entity.get("id"),
+                    "razorpay_order_id": payment_entity.get("order_id"),
+                    "payment_method_details": {
+                        "method": payment_entity.get("method"),
+                        "card_last4": (payment_entity.get("card") or {}).get("last4"),
+                        "bank": payment_entity.get("bank"),
+                        "wallet": payment_entity.get("wallet"),
+                        "vpa": payment_entity.get("vpa"),
+                    },
+                }}
+            )
+            updated = db.orders.find_one({"_id": order["_id"]})
+            decrement_stock_on_order(updated)
+            try:
+                send_customer_order_confirmed_email(updated)
+            except Exception:
+                pass
+            try:
+                send_shop_payment_success_email(str(order["_id"]))
+            except Exception:
+                pass
+
+    return jsonify({"ok": True, "handled": handled})
+
 
 # ==================== UTILITY ====================
 @app.get("/api/categories")
@@ -1400,17 +1593,18 @@ def create_indexes():
     try:
         if check_db_connection():
             db.users.create_index("email", unique=True)
+            db.users.create_index("verification_token", sparse=True)
             db.products.create_index("product_code")
             db.orders.create_index("order_number", unique=True)
             db.orders.create_index("razorpay_order_id", unique=False, sparse=True)
             db.cart.create_index([("user_id", 1), ("product_id", 1)], unique=True)
             # TTL for password reset tokens (expire by expires_at field)
             db.password_resets.create_index("expires_at", expireAfterSeconds=0)
-            print("✅ DB indexes ensured")
+            print("âœ… DB indexes ensured")
         else:
-            print("⚠️ Cannot create indexes - database not connected")
+            print("âš ï¸ Cannot create indexes - database not connected")
     except Exception as e:
-        print(f"⚠️ Index creation: {e}")
+        print(f"âš ï¸ Index creation: {e}")
 
 with app.app_context():
     create_indexes()
@@ -1418,10 +1612,10 @@ with app.app_context():
 # ==================== MAIN ====================
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    print("🚀 NAZMI Boutique API Server Starting...")
-    print("📍 http://localhost:5000")
-    print(f"🔑 Razorpay: {'✅ Configured' if rzp else '❌ Not Configured'}")
-    print(f"🗄️ Database: {'✅ Connected' if check_db_connection() else '❌ Not Connected'}")
+    print("ðŸš€ NAZMI Boutique API Server Starting...")
+    print("ðŸ“ http://localhost:5000")
+    print(f"ðŸ”‘ Razorpay: {'âœ… Configured' if rzp else 'âŒ Not Configured'}")
+    print(f"ðŸ—„ï¸ Database: {'âœ… Connected' if check_db_connection() else 'âŒ Not Connected'}")
     # Respect PORT env var when running directly
     app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
 
@@ -1456,3 +1650,14 @@ def payment_attempt_log():
     except Exception:
         logging.exception("attempt-log")
         return jsonify({"ok": False}), 500
+
+
+
+
+
+
+
+
+
+
+

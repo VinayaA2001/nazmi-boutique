@@ -1,64 +1,84 @@
-// app/verify/page.tsx
 "use client";
 
-import { useState } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 
 export default function VerifyPage() {
-  const [emailToken, setEmailToken] = useState('');
-  const [phoneToken, setPhoneToken] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [resending, setResending] = useState({ email: false, phone: false });
+  return (
+    <Suspense fallback={<VerifyFallback />}>
+      <VerifyContent />
+    </Suspense>
+  );
+}
 
-  const { verifyEmail, verifyPhone, resendVerification } = useAuth();
+function VerifyContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
+  const { verifyEmail, resendVerification } = useAuth();
+  const verifyEmailRef = useRef(verifyEmail);
 
-  const handleEmailVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    verifyEmailRef.current = verifyEmail;
+  }, [verifyEmail]);
+
+  const initialToken = searchParams.get("token") || "";
+  const [token, setToken] = useState(initialToken);
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialToken) return;
+    setToken(initialToken);
+    setSuccess("Verifying link...");
+    setError(null);
     setLoading(true);
-    setError('');
+    (async () => {
+      try {
+        await verifyEmailRef.current(initialToken);
+        setSuccess("Email verified! You're all set.");
+        router.push("/account");
+      } catch (err: any) {
+        setSuccess(null);
+        setError(err?.message || "Verification failed");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [initialToken, router]);
 
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token.trim()) return;
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
     try {
-      await verifyEmail(emailToken);
-      setSuccess('Email verified successfully!');
-      setEmailToken('');
+      await verifyEmailRef.current(token.trim());
+      setSuccess("Email verified! You can now continue to your account.");
     } catch (err: any) {
-      setError(err.message || 'Email verification failed');
+      setError(err?.message || "Verification failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePhoneVerify = async (e: React.FormEvent) => {
+  const handleResend = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
+    setError(null);
+    setSuccess(null);
+    setResending(true);
     try {
-      await verifyPhone(phoneToken);
-      setSuccess('Phone verified successfully!');
-      setPhoneToken('');
+      await resendVerification(email.trim().toLowerCase());
+      setSuccess("Verification email sent. Please check your inbox.");
     } catch (err: any) {
-      setError(err.message || 'Phone verification failed');
+      setError(err?.message || "Unable to resend verification email");
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async (type: 'email' | 'phone', identifier: string) => {
-    setResending(prev => ({ ...prev, [type]: true }));
-    setError('');
-
-    try {
-      await resendVerification(type, identifier);
-      setSuccess(`Verification code sent to your ${type}`);
-    } catch (err: any) {
-      setError(err.message || `Failed to send ${type} verification`);
-    } finally {
-      setResending(prev => ({ ...prev, [type]: false }));
+      setResending(false);
     }
   };
 
@@ -69,11 +89,9 @@ export default function VerifyPage() {
           <div className="mx-auto h-12 w-12 bg-amber-600 rounded-full flex items-center justify-center">
             <span className="text-white font-bold text-lg">N</span>
           </div>
-          <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Verify Your Account
-          </h2>
+          <h2 className="mt-6 text-3xl font-bold text-gray-900">Verify Your Email</h2>
           <p className="mt-2 text-sm text-gray-600">
-            Please verify your email and phone to complete registration
+            Enter the code from your email or use the link we sent you.
           </p>
         </div>
 
@@ -83,99 +101,82 @@ export default function VerifyPage() {
               {error}
             </div>
           )}
-          
+
           {success && (
             <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-lg text-sm">
               {success}
             </div>
           )}
 
-          {/* Email Verification */}
           <div className="bg-white p-6 rounded-lg border border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Verify Email Address</h3>
-            <form onSubmit={handleEmailVerify} className="space-y-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Enter Verification Code</h3>
+            <form onSubmit={handleVerify} className="space-y-4">
               <div>
-                <label htmlFor="emailToken" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="token" className="block text-sm font-medium text-gray-700 mb-1">
                   Email Verification Code
                 </label>
                 <input
-                  id="emailToken"
+                  id="token"
                   type="text"
                   required
-                  value={emailToken}
-                  onChange={(e) => setEmailToken(e.target.value)}
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  placeholder="Enter code from email"
+                  placeholder="Paste code from email"
                 />
               </div>
-              <div className="flex space-x-4">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
-                >
-                  Verify Email
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleResend('email', 'user-email')}
-                  disabled={resending.email}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50"
-                >
-                  {resending.email ? 'Sending...' : 'Resend Code'}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
+              >
+                {loading ? "Verifying..." : "Verify email"}
+              </button>
             </form>
           </div>
 
-          {/* Phone Verification */}
           <div className="bg-white p-6 rounded-lg border border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Verify Phone Number</h3>
-            <form onSubmit={handlePhoneVerify} className="space-y-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Need a new link?</h3>
+            <form onSubmit={handleResend} className="space-y-4">
               <div>
-                <label htmlFor="phoneToken" className="block text-sm font-medium text-gray-700 mb-1">
-                  SMS Verification Code
+                <label htmlFor="resendEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                  Email address
                 </label>
                 <input
-                  id="phoneToken"
-                  type="text"
+                  id="resendEmail"
+                  type="email"
                   required
-                  value={phoneToken}
-                  onChange={(e) => setPhoneToken(e.target.value)}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-                  placeholder="Enter code from SMS"
+                  placeholder="you@example.com"
                 />
               </div>
-              <div className="flex space-x-4">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 bg-amber-600 text-white py-2 px-4 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
-                >
-                  Verify Phone
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleResend('phone', 'user-phone')}
-                  disabled={resending.phone}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50"
-                >
-                  {resending.phone ? 'Sending...' : 'Resend SMS'}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={resending}
+                className="w-full bg-gray-900 text-white py-2 px-4 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50"
+              >
+                {resending ? "Sending..." : "Resend verification email"}
+              </button>
             </form>
           </div>
 
-          <div className="text-center">
-            <button
-              onClick={() => router.push('/account')}
-              className="text-amber-600 hover:text-amber-500 font-medium"
-            >
-              Skip verification for now
-            </button>
+          <div className="text-center text-sm text-gray-600">
+            <p>
+              Need help? <Link className="underline" href="/contact">Contact support</Link>
+            </p>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function VerifyFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <p className="text-gray-500">Preparing verification page...</p>
     </div>
   );
 }
