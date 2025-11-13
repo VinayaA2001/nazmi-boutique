@@ -36,7 +36,11 @@ const baseConfig = {
 
   // ✅ proxy all /api/* to your Flask backend
   async rewrites() {
-    const BACKEND = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+    const BACKEND =
+      process.env.NEXT_PUBLIC_API_URL ||
+      (process.env.NODE_ENV === "development"
+        ? "http://localhost:5000"
+        : "https://nazmi-boutique-2.onrender.com");
     return [
       {
         source: "/api/:path*",
