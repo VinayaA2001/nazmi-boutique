@@ -1,7 +1,7 @@
 // app/account/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import AccountHeader from "@/components/account/AccountHeader";
@@ -31,6 +31,14 @@ import { getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddre
 type TabId = "overview" | "orders" | "addresses";
 
 export default function AccountPage() {
+  return (
+    <Suspense fallback={<AccountPageFallback />}>
+      <AccountPageContent />
+    </Suspense>
+  );
+}
+
+function AccountPageContent() {
   /* ---------- Tabs: support /account?tab=orders ---------- */
   const searchParams = useSearchParams();
   const initialTab = (searchParams.get("tab") as TabId) || "overview";
@@ -256,12 +264,12 @@ export default function AccountPage() {
   );
 }
 
-
-
-
-
-
-
-
-
-
+function AccountPageFallback() {
+  return (
+    <section className="min-h-screen bg-gray-50 pt-[var(--header-offset)]">
+      <div className="max-w-4xl mx-auto px-4 py-16 text-gray-500">
+        Loading your account...
+      </div>
+    </section>
+  );
+}
