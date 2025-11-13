@@ -2,17 +2,13 @@
 
 export default function OverviewTiles({
   ordersCount,
-  wishlistCount,
   deliveredCount,
   onRecentClick,
-  onWishlistClick,
   onDeliveredClick,
 }: {
   ordersCount: number;
-  wishlistCount: number;
   deliveredCount: number;
   onRecentClick?: () => void;
-  onWishlistClick?: () => void;
   onDeliveredClick?: () => void;
 }) {
   return (
@@ -20,7 +16,7 @@ export default function OverviewTiles({
       <div className="bg-white border rounded-2xl p-6">
         <h2 className="text-2xl font-semibold text-gray-900 mb-4">Account Overview</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Recent Orders */}
           <button
             onClick={onRecentClick}
@@ -29,22 +25,9 @@ export default function OverviewTiles({
             <p className="text-blue-700 font-semibold">Recent Orders</p>
             <p className="text-2xl font-bold text-gray-900 mt-2">{ordersCount}</p>
             <span className="inline-block mt-3 text-sm text-blue-700 underline">
-              View recent orders →
+              View recent orders &gt;
             </span>
           </button>
-
-          {/* Wishlist */}
-          <button
-            onClick={onWishlistClick}
-            className="text-left rounded-xl p-6 bg-gradient-to-br from-green-50 to-green-100 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-400"
-          >
-            <p className="text-green-700 font-semibold">Wishlist Items</p>
-            <p className="text-2xl font-bold text-gray-900 mt-2">{wishlistCount}</p>
-            <span className="inline-block mt-3 text-sm text-green-700 underline">
-              View wishlist →
-            </span>
-          </button>
-
           {/* Delivered */}
           <button
             onClick={onDeliveredClick}
@@ -53,7 +36,7 @@ export default function OverviewTiles({
             <p className="text-purple-700 font-semibold">Delivered</p>
             <p className="text-2xl font-bold text-gray-900 mt-2">{deliveredCount}</p>
             <span className="inline-block mt-3 text-sm text-purple-700 underline">
-              View delivered orders →
+              View delivered orders &gt;
             </span>
           </button>
         </div>
@@ -61,3 +44,6 @@ export default function OverviewTiles({
     </div>
   );
 }
+
+
+

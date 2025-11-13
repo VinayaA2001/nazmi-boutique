@@ -1,0 +1,1 @@
+        send_customer_order_confirmed_email(updated)\n            try:\n                send_shop_payment_success_email(order_id)\n            except Exception:\n                pass\n\n            return jsonify({

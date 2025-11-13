@@ -1,0 +1,40 @@
+*** Begin Patch
+*** Update File: Backend/app.py
+@@
+ def send_shop_new_order_email(order: dict):
+@@
+         _send_email_safe(msg)
+     except Exception as e:
+         app.logger.warning(f"Shop new order email failed: {e}")
+ 
++# ====== PAYMENT ATTEMPT LOGGING (NEW) ======
++def _append_payment_attempt(order_id: str, record: dict):
++    try:
++        record = {**(record or {}), "ts": datetime.utcnow()}
++        db.orders.update_one(
++            {"_id": ObjectId(order_id)},
++            {"$push": {"payment_attempts": record}, "$set": {"last_attempt_at": datetime.utcnow()}},
++        )
++    except Exception:
++        logging.exception("append payment attempt failed")
++
++def send_shop_payment_success_email(order_id: str):
++    try:
++        order = db.orders.find_one({"_id": ObjectId(order_id)})
++        if not order:
++            return
++        subject = f"Payment captured - {order.get('order_number')}"
++        html = f"""
++        <div style='font-family:Inter,system-ui,Arial'>
++          <h3>Payment captured</h3>
++          <p>Order: <b>{order.get('order_number')}</b></p>
++          <p>Amount: <b>{order.get('grand_total')}</b></p>
++          <p>Status: {order.get('status')} | Payment: {order.get('payment_status')}</p>
++        </div>
++        """
++        msg = Message(subject=subject, recipients=[SHOP_EMAIL])
++        msg.html = html
++        _send_email_safe(msg)
++    except Exception:
++        logging.exception("shop payment success email fail")
+*** End Patch

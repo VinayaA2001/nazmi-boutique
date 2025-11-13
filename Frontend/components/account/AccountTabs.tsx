@@ -1,6 +1,6 @@
 "use client";
 
-type TabId = "overview" | "orders" | "wishlist" | "addresses";
+type TabId = "overview" | "orders" | "addresses";
 
 export default function AccountTabs({
   active,
@@ -12,7 +12,6 @@ export default function AccountTabs({
   const tabs: { id: TabId; label: string }[] = [
     { id: "overview", label: "Overview" },
     { id: "orders", label: "Orders & Tracking" },
-    { id: "wishlist", label: "Wishlist" },
     { id: "addresses", label: "Addresses" },
   ];
 
@@ -34,3 +33,4 @@ export default function AccountTabs({
     </div>
   );
 }
+

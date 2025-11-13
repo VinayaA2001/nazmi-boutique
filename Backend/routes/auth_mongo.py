@@ -76,7 +76,7 @@ def register():
     token = _make_jwt({"user_id": str(res.inserted_id)})
     return jsonify({"message": "User registered successfully",
                     "token": token,
-                    "user": {"id": str(res.inserted_id), "username": username, "email": email}}), 201
+                    "user": {"id": str(res.inserted_id), "username": username, "email": email}}), 200
 
 @auth_bp.post("/login")
 def login():

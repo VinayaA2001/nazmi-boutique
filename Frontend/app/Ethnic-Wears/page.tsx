@@ -336,7 +336,7 @@ export default function EthnicCollectionPage() {
         setError(null);
 
         // 🔁 Use your backend directly (more reliable in client components)
-        const url = `${API_BASE}/api/products?category=ethnic`;
+        const url = `/api/products?category=ethnic&match=any&inStock=1`;
         const res = await fetch(url, { cache: "no-store" });
 
         if (!res.ok) {

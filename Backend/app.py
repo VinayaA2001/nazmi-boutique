@@ -87,6 +87,25 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("Authorization")
+        if not token:
+            return jsonify({"error": "Token is missing!"}), 401
+        try:
+            token = token.replace("Bearer ", "")
+            data = decode_jwt(token)
+            current_user = db.users.find_one({"_id": ObjectId(data["user_id"])})
+            if not current_user:
+                return jsonify({"error": "User not found"}), 401
+            if not current_user.get("is_admin"):
+                return jsonify({"error": "Admin privilege required"}), 403
+        except Exception as e:
+            return jsonify({"error": "Token is invalid!", "details": str(e)}), 401
+        return f(current_user, *args, **kwargs)
+    return decorated
+
 def get_current_user_optional():
     token = request.headers.get("Authorization")
     if not token:
@@ -174,7 +193,11 @@ def root():
                 "reset": "POST /api/auth/reset-password",
             },
             "products": {"list": "GET /api/products", "single": "GET /api/products/<id>"},
-            "orders": {"create": "POST /api/orders", "user_orders": "GET /api/orders/user"},
+            "orders": {
+                "create": "POST /api/orders",
+                "user_orders": "GET /api/orders/user",
+                "confirm": "PATCH /api/orders/<order_id>/confirm"
+            },
             "payments": {
                 "create_order": "POST /api/payments/create-order",
                 "verify": "POST /api/payments/verify",
@@ -384,12 +407,20 @@ def reset_password_temp():
 
 
 # ==================== PASSWORD RESET (Mongo) ====================
-def _send_reset_email(email: str, reset_link: str):
-    """Send reset link using Flask-Mail; log if mail not configured."""
+def _send_email_safe(msg: Message):
+    """Send email safely; log in dev if not configured."""
     try:
         if not app.config.get("MAIL_USERNAME"):
-            app.logger.info(f"[DEV] Password reset link for {email}: {reset_link}")
-            return
+            app.logger.info(f"[DEV] Email (subj={msg.subject}) to {msg.recipients}: {msg.body or msg.html}")
+            return True
+        mail.send(msg)
+        return True
+    except Exception as e:
+        app.logger.warning(f"Email send skipped/logged. Reason: {e}")
+        return False
+
+def _send_reset_email(email: str, reset_link: str):
+    try:
         msg = Message(subject="Reset your password - NAZMI Boutique", recipients=[email])
         msg.body = f"Click the link to reset your password:\n\n{reset_link}\n\nIf you didn't request this, ignore this email."
         msg.html = f"""
@@ -397,7 +428,7 @@ def _send_reset_email(email: str, reset_link: str):
             <p><a href="{reset_link}">{reset_link}</a></p>
             <p>If you didn't request this, you can ignore this email.</p>
         """
-        mail.send(msg)
+        _send_email_safe(msg)
     except Exception as e:
         app.logger.warning(f"Reset email send skipped/logged. Reason: {e}")
 
@@ -420,7 +451,7 @@ def forgot_password():
 
         token = secrets.token_urlsafe(32)
         now = datetime.utcnow()
-        expires_at = now + timedelta(hours=1)  # 1 hour
+        expires_at = now + timedelta(hours=1)
 
         db.password_resets.insert_one({
             "user_id": str(user["_id"]),
@@ -499,37 +530,134 @@ def reset_password():
         return jsonify({"success": False, "message": "Internal server error"}), 500
 
 
-# ----- Update profile (address) -----
-@app.put("/api/auth/profile")
-@token_required
-def update_profile(current_user):
+# ====== ORDER EMAIL HELPERS (NEW) ======
+SHOP_EMAIL = "nazmiboutique1@gmail.com"
+
+def _fmt_money(n):
     try:
-        data = request.get_json(force=True, silent=True) or {}
-        profile = data.get("profile") or {}
-        update_profile = {
-            "fullName": str(profile.get("fullName", "")),
-            "phone": str(profile.get("phone", "")),
-            "line1": str(profile.get("line1", "")),
-            "line2": str(profile.get("line2", "")),
-            "city": str(profile.get("city", "")),
-            "state": str(profile.get("state", "")),
-            "pincode": str(profile.get("pincode", "")),
-        }
-        mongo.db.users.update_one({"_id": current_user["_id"]}, {"$set": {"profile": update_profile}})
-        user = mongo.db.users.find_one({"_id": current_user["_id"]})
-        user["_id"] = str(user["_id"])
-        return jsonify({
-            "message": "Profile updated",
-            "user": {
-                "id": user["_id"],
-                "username": user.get("username", ""),
-                "email": user.get("email", ""),
-                "profile": user.get("profile", {}),
-            }
-        })
+        return f"₹{float(n):,.2f}"
     except Exception:
-        logging.exception("Profile update error")
-        return jsonify({"error": "Failed to update profile"}), 500
+        return f"₹{n}"
+
+def _order_items_table(items):
+    rows = []
+    for it in items or []:
+        name = it.get("name") or it.get("product_name") or "Item"
+        qty = it.get("quantity", 1)
+        unit = it.get("price", 0)
+        size = it.get("size") or it.get("selectedSize") or "-"
+        color = it.get("color") or it.get("selectedColor") or "-"
+        rows.append(f"""
+            <tr>
+                <td style="padding:6px;border:1px solid #e5e7eb">{name}<br/>
+                    <span style="color:#6b7280;font-size:12px">Size: {size} | Color: {color}</span>
+                </td>
+                <td style="padding:6px;border:1px solid #e5e7eb;text-align:center">{qty}</td>
+                <td style="padding:6px;border:1px solid #e5e7eb;text-align:right">{_fmt_money(unit)}</td>
+                <td style="padding:6px;border:1px solid #e5e7eb;text-align:right">{_fmt_money(qty*float(unit or 0))}</td>
+            </tr>
+        """)
+    return "\n".join(rows)
+
+def send_shop_new_order_email(order: dict):
+    try:
+        subject = f"🛒 New Order Received: {order.get('order_number')}"
+        items_html = _order_items_table(order.get("items", []))
+        totals = f"""
+            <tr><td>Items Subtotal</td><td style="text-align:right">{_fmt_money(order.get('subtotal', 0))}</td></tr>
+            <tr><td>Shipping</td><td style="text-align:right">{_fmt_money(order.get('shipping_fee', 0))}</td></tr>
+            <tr><td>Tax</td><td style="text-align:right">{_fmt_money(order.get('tax', 0))}</td></tr>
+            <tr><td><strong>Grand Total</strong></td><td style="text-align:right"><strong>{_fmt_money(order.get('grand_total', 0))}</strong></td></tr>
+        """
+        cust = order.get("customer_info", {})
+        address = order.get("shipping_address") or {}
+        addr_html = f"""
+            <div style="font-size:14px;line-height:1.5;color:#111827">
+                <div><strong>{cust.get('name','')}</strong></div>
+                <div>{address.get('line1','')}</div>
+                <div>{address.get('line2','')}</div>
+                <div>{address.get('city','')} {address.get('pincode','')}</div>
+                <div>{address.get('state','')}</div>
+                <div>Phone: {cust.get('phone','-')}</div>
+                <div>Email: {cust.get('email','-')}</div>
+            </div>
+        """
+        html = f"""
+        <div style="font-family:Inter,system-ui,Arial,sans-serif">
+            <h2>New Order Received</h2>
+            <p>Order Number: <strong>{order.get('order_number')}</strong></p>
+            <p>Placed At: {order.get('created_at')}</p>
+            <h3>Items</h3>
+            <table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;font-size:14px">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;padding:6px;border:1px solid #e5e7eb">Product</th>
+                        <th style="text-align:center;padding:6px;border:1px solid #e5e7eb">Qty</th>
+                        <th style="text-align:right;padding:6px;border:1px solid #e5e7eb">Price</th>
+                        <th style="text-align:right;padding:6px;border:1px solid #e5e7eb">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {items_html}
+                </tbody>
+            </table>
+            <h3>Totals</h3>
+            <table style="width:100%;font-size:14px">
+                {totals}
+            </table>
+            <h3>Shipping Address</h3>
+            {addr_html}
+            <p style="margin-top:12px">
+                View/confirm this order in Admin: <code>{order.get('_id')}</code>
+            </p>
+        </div>
+        """
+        msg = Message(subject=subject, recipients=[SHOP_EMAIL])
+        msg.body = f"New order {order.get('order_number')} placed."
+        msg.html = html
+        _send_email_safe(msg)
+    except Exception as e:
+        app.logger.warning(f"Shop new order email failed: {e}")
+
+def send_customer_order_confirmed_email(order: dict):
+    try:
+        cust = (order or {}).get("customer_info", {})
+        email = (cust or {}).get("email")
+        if not email:
+            return
+        subject = f"✅ Your Order is Confirmed: {order.get('order_number')}"
+        html = f"""
+        <div style="font-family:Inter,system-ui,Arial,sans-serif">
+            <h2>Order Confirmed</h2>
+            <p>Hi {cust.get('name','')},</p>
+            <p>Your order <strong>{order.get('order_number')}</strong> has been confirmed by Nazmi Boutique.</p>
+            <p>We’ll share shipping details soon. Thank you for shopping with us!</p>
+            <p style="margin-top:16px">— Team NAZMI</p>
+        </div>
+        """
+        msg = Message(subject=subject, recipients=[email])
+        msg.body = f"Your order {order.get('order_number')} is confirmed. We’ll ship soon."
+        msg.html = html
+        _send_email_safe(msg)
+    except Exception as e:
+        app.logger.warning(f"Customer confirmation email failed: {e}")
+
+# Optional: stock decrement helper (call on payment capture or manual confirm)
+def decrement_stock_on_order(order: dict):
+    """Example naive stock decrement based only on product.stock field."""
+    try:
+        for it in (order or {}).get("items", []):
+            pid = it.get("product_id") or it.get("productId") or it.get("id")
+            qty = int(it.get("quantity", 0) or 0)
+            if not pid or qty <= 0:
+                continue
+            db.products.update_one(
+                {"_id": ObjectId(pid)},
+                {"$inc": {"stock": -qty}}
+            )
+    except Exception as e:
+        app.logger.warning(f"Stock decrement failed: {e}")
+
 # ==================== PRODUCTS ====================
 @app.get("/api/products")
 def get_products():
@@ -561,6 +689,11 @@ def get_product(product_id):
 # ==================== ORDERS ====================
 @app.post("/api/orders")
 def create_order():
+    """
+    Creates order in 'awaiting_shop_confirmation' and emails shop immediately.
+    Totals are trusted from client for now (kept as-is to avoid data loss), but
+    you can harden by recomputing from DB (future change).
+    """
     try:
         if not check_db_connection():
             return jsonify({"error": "Database not connected"}), 500
@@ -572,6 +705,7 @@ def create_order():
         if not items:
             return jsonify({"error": "No items in order"}), 400
 
+        # Preserve your existing computation style
         subtotal = sum((item.get("price", 0) or 0) * (item.get("quantity", 0) or 0) for item in items)
         shipping_fee = float(data.get("shipping_fee", 0))
         tax = subtotal * 0.18
@@ -583,34 +717,107 @@ def create_order():
             "phone": data.get("customer_phone", "")
         }
 
+        # New: capture structured address if provided (backward compatible)
+        shipping_address = data.get("shipping_address") or {
+            "fullName": data.get("shipping_name", ""),
+            "phone": data.get("shipping_phone", ""),
+            "line1": data.get("shipping_line1", ""),
+            "line2": data.get("shipping_line2", ""),
+            "city": data.get("shipping_city", ""),
+            "state": data.get("shipping_state", ""),
+            "pincode": data.get("shipping_pincode", "")
+        }
+
         order_data = {
             "order_number": f"ORD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
             "user_id": str(current_user["_id"]) if current_user else None,
             "customer_info": customer_info,
-            "shipping_address": data.get("shipping_address", ""),
+            "shipping_address": shipping_address,
             "items": items,
             "subtotal": float(subtotal),
             "shipping_fee": float(shipping_fee),
             "tax": float(tax),
             "total": float(subtotal + tax),
             "grand_total": float(grand_total),
-            "status": "pending",
+            "status": "awaiting_shop_confirmation",  # changed from 'pending'
             "payment_status": "pending",
             "payment_method": data.get("payment_method", ""),
             "order_type": data.get("order_type", "cart"),
-            "created_at": datetime.utcnow()
+            "created_at": datetime.utcnow(),
+            "expires_at": datetime.utcnow() + timedelta(minutes=60),
+            # placeholders for Razorpay linkage
+            "razorpay_order_id": None,
+            "razorpay_receipt": None
         }
 
         result = db.orders.insert_one(order_data)
+        order_data["_id"] = str(result.inserted_id)
+
+        # NEW: email the shop about the new order
+        try:
+            send_shop_new_order_email(order_data)
+        except Exception:
+            pass
+
         return jsonify({
             "message": "Order created successfully",
             "order_id": str(result.inserted_id),
             "order_number": order_data["order_number"],
-            "grand_total": order_data["grand_total"]
+            "grand_total": order_data["grand_total"],
+            "status": order_data["status"]
         }), 201
     except Exception:
         logging.exception("Order creation error")
         return jsonify({"error": "Failed to create order"}), 500
+
+@app.patch("/api/orders/<order_id>/confirm")
+@admin_required
+def confirm_order(order_id):
+    """
+    Admin/shop confirms an order:
+    - Sets status to 'confirmed'
+    - Sends confirmation email to customer
+    - (Optional) decrement stock here for COD/manual; left commented
+    """
+    try:
+        if not check_db_connection():
+            return jsonify({"error": "Database not connected"}), 500
+
+        order = db.orders.find_one({"_id": ObjectId(order_id)})
+        if not order:
+            return jsonify({"error": "Order not found"}), 404
+
+        # No-op if already confirmed or beyond
+        if order.get("status") in ("confirmed", "processing", "shipped", "delivered", "completed"):
+            # still send email if missing (idempotent safe)
+            send_customer_order_confirmed_email(order)
+            return jsonify({"message": "Order already confirmed", "order_id": order_id})
+
+        db.orders.update_one(
+            {"_id": ObjectId(order_id)},
+            {"$set": {"status": "confirmed", "confirmed_at": datetime.utcnow()}}
+        )
+
+        updated = db.orders.find_one({"_id": ObjectId(order_id)})
+        # Optional: uncomment to decrement stock on manual confirm too
+        # decrement_stock_on_order(updated)
+
+        # Email customer
+        send_customer_order_confirmed_email(updated)
+        try:
+            send_shop_payment_success_email(order_id)
+        except Exception:
+            pass
+
+        return jsonify({
+            "message": "Order confirmed",
+            "order_id": order_id,
+            "order_number": updated.get("order_number"),
+            "status": updated.get("status")
+        })
+    except Exception:
+        logging.exception("Order confirm error")
+        return jsonify({"error": "Failed to confirm order"}), 500
 
 @app.get("/api/orders/user")
 @token_required
@@ -640,7 +847,7 @@ def get_order(order_id):
         logging.exception("Order fetch error")
         return jsonify({"error": "Failed to fetch order"}), 500
 
-# ==================== EMAIL ====================
+# ==================== EMAIL (generic) ====================
 @app.post("/api/email/send")
 def send_email():
     try:
@@ -656,13 +863,49 @@ def send_email():
         msg.body = text or " "
         if html:
             msg.html = html
-        mail.send(msg)
-        return jsonify({"ok": True, "sent_to": to})
+        ok = _send_email_safe(msg)
+        if ok:
+            return jsonify({"ok": True, "sent_to": to})
+        return jsonify({"ok": False, "error": "mail not configured"}), 500
     except Exception as e:
         logging.exception("Mail send error")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-# ==================== RAZORPAY PAYMENTS ====================
+
+# ====== PAYMENT ATTEMPT LOGGING (NEW) ======
+def _append_payment_attempt(order_id: str, record: dict):
+    """Append a payment attempt record on the order.
+    Adds a timestamp and updates last_attempt_at for quick querying.
+    """
+    try:
+        rec = dict(record or {})
+        rec["ts"] = datetime.utcnow()
+        db.orders.update_one(
+            {"_id": ObjectId(order_id)},
+            {"$push": {"payment_attempts": rec}, "$set": {"last_attempt_at": datetime.utcnow()}},
+        )
+    except Exception:
+        logging.exception("append payment attempt failed")
+
+def send_shop_payment_success_email(order_id: str):
+    try:
+        order = db.orders.find_one({"_id": ObjectId(order_id)})
+        if not order:
+            return
+        subject = f"Payment captured - {order.get('order_number')}"
+        html = f"""
+        <div style='font-family:Inter,system-ui,Arial'>
+          <h3>Payment captured</h3>
+          <p>Order: <b>{order.get('order_number')}</b></p>
+          <p>Amount: <b>{order.get('grand_total')}</b></p>
+          <p>Status: {order.get('status')} | Payment: {order.get('payment_status')}</p>
+        </div>
+        """
+        msg = Message(subject=subject, recipients=[SHOP_EMAIL])
+        msg.html = html
+        _send_email_safe(msg)
+    except Exception:
+        logging.exception("shop payment success email fail")# ==================== RAZORPAY PAYMENTS ====================
 @app.post("/api/payments/razorpay/create-order")
 def create_razorpay_order():
     if not rzp:
@@ -679,7 +922,17 @@ def create_razorpay_order():
     if order.get("payment_status") == "paid":
         return jsonify({"error": "Order already paid"}), 400
 
-    amount_paise = int(float(order.get("grand_total", 0)) * 100)
+    # Idempotency: reuse existing razorpay_order_id if present & pending
+    if order.get("razorpay_order_id") and order.get("payment_status") == "pending":
+        return jsonify({
+            "success": True,
+            "razorpay_order_id": order["razorpay_order_id"],
+            "amount": int(float(order.get("grand_total", 0)) * 100),
+            "currency": "INR",
+            "key": RAZORPAY_KEY_ID
+        })
+
+    amount_paise = int(round(float(order.get("grand_total", 0)) * 100))
 
     try:
         rzp_order = rzp.order.create({
@@ -693,6 +946,10 @@ def create_razorpay_order():
             },
             "payment_capture": 1
         })
+        db.orders.update_one(
+            {"_id": ObjectId(order_id)},
+            {"$set": {"razorpay_order_id": rzp_order["id"], "razorpay_receipt": rzp_order.get("receipt")}}
+        )
         return jsonify({
             "success": True,
             "razorpay_order_id": rzp_order["id"],
@@ -733,17 +990,39 @@ def verify_razorpay_payment():
         notes = payment.get("notes", {}) or {}
         order_id = notes.get("order_id")
         if order_id:
+            try:
+                _append_payment_attempt(order_id, { 'kind': 'verify', 'status': 'captured', 'razorpay_order_id': razorpay_order_id, 'razorpay_payment_id': razorpay_payment_id, 'gateway_status': payment.get('status'), 'method': payment.get('method'), 'meta': { 'bank': payment.get('bank'), 'wallet': payment.get('wallet'), 'vpa': payment.get('vpa'), 'card_last4': (payment.get('card') or {}).get('last4'), } })
+            except Exception:
+                pass
             db.orders.update_one(
                 {"_id": ObjectId(order_id)},
                 {"$set": {
                     "payment_status": "paid",
-                    "status": "confirmed",
+                    "status": "confirmed",  # auto-confirm on successful capture (kept from your flow)
                     "paid_at": datetime.utcnow(),
                     "razorpay_payment_id": razorpay_payment_id,
-                    "razorpay_order_id": razorpay_order_id
+                    "razorpay_order_id": razorpay_order_id,
+                    "payment_method_details": {
+                        "method": payment.get("method"),
+                        "card_last4": (payment.get("card", {}) or {}).get("last4"),
+                        "bank": payment.get("bank"),
+                        "wallet": payment.get("wallet"),
+                        "vpa": payment.get("vpa")
+                    }
                 }}
             )
             updated = db.orders.find_one({"_id": ObjectId(order_id)})
+
+            # Decrement stock on paid (as before)
+            decrement_stock_on_order(updated)
+
+            # Email customer confirmation (idempotent-safe)
+            send_customer_order_confirmed_email(updated)
+            try:
+                send_shop_payment_success_email(order_id)
+            except Exception:
+                pass
+
             return jsonify({
                 "success": True,
                 "message": "Payment verified successfully",
@@ -780,7 +1059,7 @@ def payments_create_order():
 
     try:
         order = rzp.order.create({
-            "amount": int(float(amount_rupees) * 100),
+            "amount": int(round(float(amount_rupees) * 100)),
             "currency": "INR",
             "payment_capture": 1,
             "receipt": f"rcpt_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
@@ -834,6 +1113,14 @@ def payments_verify():
             {"_id": order["_id"]},
             {"$set": {"payment_status": "paid", "status": "confirmed", "paid_at": datetime.utcnow()}}
         )
+        # Decrement stock on paid (legacy path)
+        decrement_stock_on_order(order)
+
+        # Customer confirm email (legacy path)
+        try:
+            send_customer_order_confirmed_email(order)
+        except Exception:
+            pass
 
     try:
         os.makedirs("instance/payments", exist_ok=True)
@@ -864,6 +1151,7 @@ def payments_webhook():
 
     event = request.get_json(silent=True) or {}
     app.logger.info(f"Razorpay webhook: {event.get('event')}")
+    # Tip: You can extend here for idempotent event processing and refunds
     return jsonify({"ok": True})
 
 # ==================== UTILITY ====================
@@ -979,7 +1267,126 @@ def remove_from_cart(current_user, product_id):
         logging.exception("Remove from cart error")
         return jsonify({"error": "Failed to remove item from cart"}), 500
 
-# ==================== ERRORS ====================
+
+# ==================== USER ADDRESSES (MULTI) ====================
+@app.get("/api/user/addresses")
+@token_required
+def user_addresses_list(current_user):
+    try:
+        user = db.users.find_one({"_id": current_user["_id"]}) or {}
+        addresses = user.get("addresses") or []
+        for a in addresses:
+            if isinstance(a.get("_id"), ObjectId):
+                a["_id"] = str(a["_id"])
+        addresses.sort(key=lambda x: (not x.get("isDefault", False), -(x.get("createdAt") or 0)))
+        default_id = next((a.get("_id") for a in addresses if a.get("isDefault")), None)
+        return jsonify({"addresses": addresses, "defaultId": default_id})
+    except Exception:
+        app.logger.exception("addresses list error")
+        return jsonify({"error": "failed to load addresses"}), 500
+
+@app.post("/api/user/addresses")
+@token_required
+def user_addresses_add(current_user):
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        addr = {
+            "_id": str(ObjectId()),
+            "fullName": str(data.get("fullName", "")).strip(),
+            "phone": str(data.get("phone", "")).strip(),
+            "line1": str(data.get("line1", "")).strip(),
+            "line2": str(data.get("line2", "")).strip(),
+            "city": str(data.get("city", "")).strip(),
+            "state": str(data.get("state", "")).strip(),
+            "pincode": str(data.get("pincode", "")).strip(),
+            "isDefault": bool(data.get("isDefault", False)),
+            "createdAt": int(datetime.utcnow().timestamp()),
+        }
+        for k in ["fullName", "phone", "line1", "city", "state", "pincode"]:
+            if not addr.get(k):
+                return jsonify({"error": f"{k} is required"}), 400
+        user = db.users.find_one({"_id": current_user["_id"]}) or {}
+        addrs = user.get("addresses") or []
+        if not addrs:
+            addr["isDefault"] = True
+        elif addr.get("isDefault"):
+            for a in addrs:
+                a["isDefault"] = False
+        addrs.append(addr)
+        db.users.update_one({"_id": current_user["_id"]}, {"$set": {"addresses": addrs}})
+        return jsonify({"address": addr}), 201
+    except Exception:
+        app.logger.exception("addresses add error")
+        return jsonify({"error": "failed to add address"}), 500
+
+@app.put("/api/user/addresses/<addr_id>")
+@token_required
+def user_addresses_update(current_user, addr_id):
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        user = db.users.find_one({"_id": current_user["_id"]}) or {}
+        addrs = user.get("addresses") or []
+        found = False
+        for a in addrs:
+            if str(a.get("_id")) == str(addr_id):
+                for k in ["fullName", "phone", "line1", "line2", "city", "state", "pincode"]:
+                    if k in data:
+                        a[k] = str(data.get(k) or "").strip()
+                if data.get("isDefault"):
+                    for x in addrs:
+                        x["isDefault"] = False
+                    a["isDefault"] = True
+                found = True
+                break
+        if not found:
+            return jsonify({"error": "address not found"}), 404
+        db.users.update_one({"_id": current_user["_id"]}, {"$set": {"addresses": addrs}})
+        return jsonify({"ok": True})
+    except Exception:
+        app.logger.exception("addresses update error")
+        return jsonify({"error": "failed to update address"}), 500
+
+@app.delete("/api/user/addresses/<addr_id>")
+@token_required
+def user_addresses_delete(current_user, addr_id):
+    try:
+        user = db.users.find_one({"_id": current_user["_id"]}) or {}
+        addrs = user.get("addresses") or []
+        before = len(addrs)
+        was_default = any(str(a.get("_id")) == str(addr_id) and a.get("isDefault") for a in addrs)
+        addrs = [a for a in addrs if str(a.get("_id")) != str(addr_id)]
+        if len(addrs) == before:
+            return jsonify({"error": "address not found"}), 404
+        if was_default and addrs:
+            for x in addrs:
+                x["isDefault"] = False
+            addrs[0]["isDefault"] = True
+        db.users.update_one({"_id": current_user["_id"]}, {"$set": {"addresses": addrs}})
+        return jsonify({"ok": True})
+    except Exception:
+        app.logger.exception("addresses delete error")
+        return jsonify({"error": "failed to delete address"}), 500
+
+@app.patch("/api/user/addresses/<addr_id>/default")
+@token_required
+def user_addresses_set_default(current_user, addr_id):
+    try:
+        user = db.users.find_one({"_id": current_user["_id"]}) or {}
+        addrs = user.get("addresses") or []
+        found = False
+        for a in addrs:
+            if str(a.get("_id")) == str(addr_id):
+                a["isDefault"] = True
+                found = True
+            else:
+                a["isDefault"] = False
+        if not found:
+            return jsonify({"error": "address not found"}), 404
+        db.users.update_one({"_id": current_user["_id"]}, {"$set": {"addresses": addrs}})
+        return jsonify({"ok": True})
+    except Exception:
+        app.logger.exception("addresses set default error")
+        return jsonify({"error": "failed to set default"}), 500# ==================== ERRORS ====================
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"error": "Endpoint not found"}), 404
@@ -995,6 +1402,7 @@ def create_indexes():
             db.users.create_index("email", unique=True)
             db.products.create_index("product_code")
             db.orders.create_index("order_number", unique=True)
+            db.orders.create_index("razorpay_order_id", unique=False, sparse=True)
             db.cart.create_index([("user_id", 1), ("product_id", 1)], unique=True)
             # TTL for password reset tokens (expire by expires_at field)
             db.password_resets.create_index("expires_at", expireAfterSeconds=0)
@@ -1016,3 +1424,35 @@ if __name__ == "__main__":
     print(f"🗄️ Database: {'✅ Connected' if check_db_connection() else '❌ Not Connected'}")
     # Respect PORT env var when running directly
     app.run(debug=True, host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+
+
+
+
+
+
+
+@app.post("/api/payments/attempt-log")
+def payment_attempt_log():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        order_id = (data.get("order_id") or "").strip()
+        status = (data.get("status") or "").strip().lower()  # failed | cancelled | timeout
+        if not order_id or status not in {"failed", "cancelled", "timeout"}:
+            return jsonify({"error": "order_id and valid status required"}), 400
+        rec = {
+            "kind": "client_report",
+            "status": status,
+            "razorpay_order_id": data.get("razorpay_order_id"),
+            "razorpay_payment_id": data.get("razorpay_payment_id"),
+            "reason": data.get("reason"),
+            "gateway_status": data.get("gateway_status"),
+        }
+        _append_payment_attempt(order_id, rec)
+        if status == "cancelled":
+            db.orders.update_one({"_id": ObjectId(order_id)}, {"$set": {"payment_status": "pending"}})
+        elif status == "failed":
+            db.orders.update_one({"_id": ObjectId(order_id)}, {"$set": {"payment_status": "failed"}})
+        return jsonify({"ok": True})
+    except Exception:
+        logging.exception("attempt-log")
+        return jsonify({"ok": False}), 500

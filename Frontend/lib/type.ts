@@ -65,3 +65,8 @@ export type WishlistItem = {
   image: string;
   productCode?: string;
 };
+
+export type AddressItem = Address & {
+  _id: string;
+  isDefault?: boolean;
+};

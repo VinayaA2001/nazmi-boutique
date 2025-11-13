@@ -1,81 +1,2 @@
-"use client";
+"use client";import type { Order, OrderStatus } from "@/lib/type";import Image from "next/image";import Link from "next/link";import { formatINR } from "@/lib/currency";const STATUS_STEPS: OrderStatus[] = [  "PLACED",  "CONFIRMED",  "PACKED",  "SHIPPED",  "OUT_FOR_DELIVERY",  "DELIVERED",];const statusIndex = (s: OrderStatus) => Math.max(0, STATUS_STEPS.indexOf(s));const daysLeft = (d?: string) => {  if (!d) return null;  const now = new Date();  const target = new Date(d);  return Math.ceil((target.getTime() - now.getTime()) / 86400000);};export default function OrdersList({  orders,  loading,}: {  orders: Order[];  loading: boolean;}) {  if (loading)    return (      <div className="text-center text-gray-600 py-10">Loading your orders…</div>    );  if (!orders.length)    return (      <div className="text-center py-10">        <p className="text-gray-600 mb-3">No orders yet</p>      </div>    );  return (    <div className="space-y-5">      {orders.map((o) => {        const delivered = o.status === "DELIVERED";        const cancelled = o.status === "CANCELLED";        const paymentStatus = ((o as any)?.payment?.status ?? "PENDING") as string;        const paymentChip = paymentStatus === "PAID" ? "bg-green-100 text-green-700"            : "bg-red-100 text-red-700";        return (          <div key={o._id} className="border rounded-xl bg-white overflow-hidden">            <div className="px-4 py-3 bg-gray-50 flex justify-between items-center gap-3 text-sm">              <span>Order ID: {o.orderNumber}</span>              <span className="flex gap-2">                <span                  className={`px-2 py-1 text-xs rounded ${                    cancelled                      ? "bg-red-100 text-red-700"                      : delivered                      ? "bg-green-100 text-green-700"                      : "bg-blue-100 text-blue-700"                  }`}                >                  {o.status}                </span>                <span className={`px-2 py-1 text-xs rounded ${paymentChip}`}>                  {paymentStatus}                </span>              </span>            </div>          </div>        );      })}    </div>  );}
 
-import type { Order, OrderStatus } from "@/lib/type";
-import Image from "next/image";
-import Link from "next/link";
-import { formatINR } from "@/lib/currency";
-
-const STATUS_STEPS: OrderStatus[] = [
-  "PLACED",
-  "CONFIRMED",
-  "PACKED",
-  "SHIPPED",
-  "OUT_FOR_DELIVERY",
-  "DELIVERED",
-];
-
-const statusIndex = (s: OrderStatus) => Math.max(0, STATUS_STEPS.indexOf(s));
-
-const daysLeft = (d?: string) => {
-  if (!d) return null;
-  const now = new Date();
-  const target = new Date(d);
-  return Math.ceil((target.getTime() - now.getTime()) / 86400000);
-};
-
-export default function OrdersList({
-  orders,
-  loading,
-}: {
-  orders: Order[];
-  loading: boolean;
-}) {
-  if (loading)
-    return (
-      <div className="text-center text-gray-600 py-10">Loading your orders…</div>
-    );
-
-  if (!orders.length)
-    return (
-      <div className="text-center py-10">
-        <p className="text-gray-600 mb-3">No orders yet</p>
-      </div>
-    );
-
-  return (
-    <div className="space-y-5">
-      {orders.map((o) => {
-        const delivered = o.status === "DELIVERED";
-        const cancelled = o.status === "CANCELLED";
-        const paymentChip =
-          o.payment.status === "PAID"
-            ? "bg-green-100 text-green-700"
-            : "bg-red-100 text-red-700";
-
-        return (
-          <div key={o._id} className="border rounded-xl bg-white overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 flex justify-between items-center gap-3 text-sm">
-              <span>Order ID: {o.orderNumber}</span>
-              <span className="flex gap-2">
-                <span
-                  className={`px-2 py-1 text-xs rounded ${
-                    cancelled
-                      ? "bg-red-100 text-red-700"
-                      : delivered
-                      ? "bg-green-100 text-green-700"
-                      : "bg-blue-100 text-blue-700"
-                  }`}
-                >
-                  {o.status}
-                </span>
-                <span className={`px-2 py-1 text-xs rounded ${paymentChip}`}>
-                  {o.payment.status}
-                </span>
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}

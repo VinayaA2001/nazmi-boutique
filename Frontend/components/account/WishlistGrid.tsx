@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { WishlistItem, ProductLite } from "@/lib/types";
+import { WishlistItem, ProductLite } from "@/lib/type";
 import { formatINR } from "@/lib/currency";
 
 export default function WishlistGrid({
@@ -34,7 +34,7 @@ export default function WishlistGrid({
             const price = fresh?.price ?? w.price;
             const inStock = fresh?.inStock ?? true;
             const img = fresh?.image ?? w.image ?? "/images/poster1.png";
-            const slug = fresh?.slug ? `/product/${fresh.slug}` : "#";
+            const cat = (fresh as any)?.category?.toLowerCase?.() || "";\n            const base = cat.includes("west") ? "/western" : "/Ethnic-Wears";\n            const slug = fresh?.slug ? `${base}/${fresh.slug}` : "#";
 
             return (
               <div key={w.productId} className="group bg-white border rounded-xl overflow-hidden">
@@ -66,3 +66,5 @@ export default function WishlistGrid({
     </div>
   );
 }
+
+

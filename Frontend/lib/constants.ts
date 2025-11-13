@@ -134,8 +134,8 @@ export const SOCIAL_LINKS = {
 
 // Contact Information
 export const CONTACT_INFO = {
-  email: 'support@nazmiboutique.com',
-  phone: '+91 98765 43210',
+  email: 'nazmiboutique1@gmail.com',
+  phone: '+91 99959 47709',
   address: '123 Fashion Street, Mumbai, Maharashtra 400001',
   businessHours: 'Mon-Sat: 10:00 AM - 8:00 PM'
 };

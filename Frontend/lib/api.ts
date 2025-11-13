@@ -173,14 +173,21 @@ export const rehydrateProducts = async (
     try {
       const res = await apiFetch(`${API}/api/products/${id}`);
       if (!res.ok) continue;
-      const p = await getJSON<any>(res);
+      const raw = await getJSON<any>(res);
+      const p = raw && raw.product ? raw.product : raw;
+      const images: string[] = Array.isArray(p?.images) ? p.images : [];
+      const firstImage = images.length ? images[0] : undefined;
+      const variants = Array.isArray(p?.variants) ? p.variants : [];
+      const totalStock = typeof p?.totalStock === "number"
+        ? p.totalStock
+        : variants.reduce((sum: number, v: any) => sum + Number(v?.stock || v?.quantity || 0), 0);
       out[id] = {
-        _id: p._id,
-        name: p.name,
-        price: p.price,
-        image: p.image || "/images/poster1.png",
-        inStock: (p.stock ?? 0) > 0,
-        slug: p.slug,
+        _id: String(p?._id ?? id),
+        name: p?.name || p?.product_name || p?.title || "",
+        price: Number(p?.price ?? p?.minPrice ?? 0),
+        image: p?.image || firstImage || "/images/poster1.png",
+        inStock: totalStock > 0,
+        slug: p?.slug,
       };
     } catch (err) {
       console.warn(`[rehydrateProducts] ${id} failed:`, err);
@@ -305,3 +312,49 @@ async function safeText(r: Response) {
     return "";
   }
 }
+
+// ===== Addresses (multi) =====
+export type { AddressItem } from "./type";
+
+export const getAddresses = async (): Promise<AddressItem[]> => {
+  try {
+    const res = await apiFetch(`/api/user/addresses`, { method: "GET" });
+    if (!res.ok) return [];
+    const data = await getJSON<{ addresses: AddressItem[] }>(res);
+    return data?.addresses ?? [];
+  } catch {
+    return [];
+  }
+};
+
+export const addAddress = async (addr: Address, isDefault = false): Promise<AddressItem | null> => {
+  const res = await apiFetch(`/api/user/addresses`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...addr, isDefault }),
+  });
+  if (!res.ok) return null;
+  const data = await getJSON<{ address: AddressItem }>(res);
+  return data?.address ?? null;
+};
+
+export const updateAddress = async (id: string, addr: Partial<Address>, isDefault?: boolean): Promise<boolean> => {
+  const res = await apiFetch(`/api/user/addresses/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...addr, ...(isDefault ? { isDefault: true } : {}) }),
+  });
+  return res.ok;
+};
+
+export const deleteAddress = async (id: string): Promise<boolean> => {
+  const res = await apiFetch(`/api/user/addresses/${id}`, { method: "DELETE" });
+  return res.ok;
+};
+
+export const setDefaultAddress = async (id: string): Promise<boolean> => {
+  const res = await apiFetch(`/api/user/addresses/${id}`, { method: "PATCH" });
+  return res.ok;
+};
+
+
