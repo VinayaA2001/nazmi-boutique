@@ -1,8 +1,11 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RE = /^[6-9]\d{9}$/;
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -12,25 +15,29 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPass] = useState("");
-  const [confirmPassword, setConfirmPass] = useState(""); // ✅ New state
+  const [confirmPassword, setConfirmPass] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
+  const phoneValid = useMemo(() => !phone.trim() || PHONE_RE.test(phone.trim()), [phone]);
+  const passwordValid = useMemo(() => password.length >= 8, [password]);
+  const canSubmit = emailValid && phoneValid && passwordValid && password === confirmPassword && !!firstName.trim();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
     setSuccess(null);
 
-    // ✅ Check if passwords match
-    if (password !== confirmPassword) {
-      setErr("Passwords do not match");
-      return;
-    }
+    if (!emailValid) return setErr("Please enter a valid email"), undefined;
+    if (!phoneValid) return setErr("Please enter a valid 10-digit mobile"), undefined;
+    if (!passwordValid) return setErr("Password must be at least 8 characters"), undefined;
+    if (password !== confirmPassword) return setErr("Passwords do not match"), undefined;
 
     setLoading(true);
     try {
-      const response = await register({ firstName, lastName, email, phone, password });
+      const response = await register({ firstName, lastName, email: email.trim().toLowerCase(), phone: phone.trim(), password });
       setSuccess(
         response?.message ||
           "Account created! Please check your inbox for a verification link before signing in."
@@ -51,7 +58,7 @@ export default function RegisterPage() {
         </p>
 
         {err && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-md p-3 mb-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-md p-3 mb-3">
             {err}
           </div>
         )}
@@ -87,7 +94,7 @@ export default function RegisterPage() {
           </div>
 
           <input
-            className="border rounded-lg p-3 w-full"
+            className={`border rounded-lg p-3 w-full ${email && !emailValid ? 'border-red-400' : ''}`}
             type="email"
             placeholder="Email *"
             value={email}
@@ -96,7 +103,7 @@ export default function RegisterPage() {
           />
 
           <input
-            className="border rounded-lg p-3 w-full"
+            className={`border rounded-lg p-3 w-full ${phone && !phoneValid ? 'border-red-400' : ''}`}
             type="tel"
             placeholder="Phone (optional)"
             value={phone}
@@ -104,17 +111,16 @@ export default function RegisterPage() {
           />
 
           <input
-            className="border rounded-lg p-3 w-full"
+            className={`border rounded-lg p-3 w-full ${password && !passwordValid ? 'border-red-400' : ''}`}
             type="password"
-            placeholder="Password *"
+            placeholder="Password (min 8 chars) *"
             value={password}
             onChange={(e) => setPass(e.target.value)}
             required
           />
 
-          {/* ✅ Confirm Password Field */}
           <input
-            className="border rounded-lg p-3 w-full"
+            className={`border rounded-lg p-3 w-full ${confirmPassword && confirmPassword !== password ? 'border-red-400' : ''}`}
             type="password"
             placeholder="Confirm Password *"
             value={confirmPassword}
@@ -124,7 +130,7 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !canSubmit}
             className="w-full bg-black text-white py-3 rounded-lg font-semibold disabled:opacity-60"
           >
             {loading ? "Creating..." : "Create account"}

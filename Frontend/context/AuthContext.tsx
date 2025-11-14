@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { API_BASE_BROWSER } from "@/lib/constants";
 
 type User = {
   id: string;
@@ -50,7 +51,7 @@ const AuthContext = createContext<AuthContextType>({
   logout: () => {},
 });
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+const API_BASE = (API_BASE_BROWSER || "").replace(/\/$/, "");
 
 async function safeJson(res: Response) {
   const text = await res.text();

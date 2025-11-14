@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,11 +9,12 @@ export default function LoginClient() {
   const router = useRouter();
   const sp = useSearchParams();
   const redirect = sp.get("redirect") || "/account";
-  const { login } = useAuth();
+  const { login, resendVerification } = useAuth();
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [needsVerify, setNeedsVerify] = useState(false);
 
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -23,14 +24,29 @@ export default function LoginClient() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    setNeedsVerify(false);
     setBusy(true);
     try {
       await login(identifier, password);
       router.replace(redirect);
     } catch (e: any) {
-      setErr(e?.message || "Invalid email or password");
+      if (e?.code === "EMAIL_NOT_VERIFIED") {
+        setNeedsVerify(true);
+        setErr("Please verify your email to sign in.");
+      } else {
+        setErr(e?.message || "Invalid email or password");
+      }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resendVerify() {
+    try {
+      await resendVerification(identifier.trim().toLowerCase());
+      setErr("Verification email sent. Please check your inbox.");
+    } catch (e: any) {
+      setErr(e?.message || "Failed to resend verification email");
     }
   }
 
@@ -51,9 +67,14 @@ export default function LoginClient() {
         <p className="text-sm text-gray-600 text-center mb-6">Use your email</p>
 
         {err && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-md px-3 py-2 mb-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-md px-3 py-2 mb-2">
             {err}
           </div>
+        )}
+        {needsVerify && (
+          <p className="text-sm text-gray-700 mb-4">
+            Didn&apos;t get it? <button type="button" onClick={resendVerify} className="underline">Resend verification email</button>
+          </p>
         )}
 
         <form onSubmit={onSubmit} className="space-y-4">
@@ -109,7 +130,7 @@ export default function LoginClient() {
               <button onClick={() => setForgotOpen(false)} className="text-2xl leading-none">×</button>
             </div>
             <p className="text-sm text-gray-600 mb-4">
-              Enter your account email. We'll send a reset link if an account exists.
+              Enter your account email. We&apos;ll send a reset link if an account exists.
             </p>
             <input
               type="email"
@@ -128,4 +149,3 @@ export default function LoginClient() {
     </div>
   );
 }
-

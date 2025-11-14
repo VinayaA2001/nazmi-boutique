@@ -1,4 +1,4 @@
-// app/api/products/route.ts
+﻿// app/api/products/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 /* ========= Utils ========= */
@@ -210,9 +210,13 @@ export async function GET(req: NextRequest) {
     const limit = Number(url.searchParams.get("limit") ?? 0);
 
     const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "https://nazmi-boutique-2.onrender.com").replace(/\/$/, "");
-    const backendURL = `${API_BASE}/api/products`;
+    const backendBase = `${API_BASE}/api/products`;
 
-    const res = await fetch(backendURL, { method: "GET", cache: "no-store" });
+    const qs = new URLSearchParams();
+    if (rawCategory) qs.set("category", rawCategory);
+    if (limit > 0) qs.set("limit", String(limit));
+    if (inStockOnly) qs.set("inStock", "1");
+    const res = await fetch(`${backendBase}?${qs.toString()}`, { next: { revalidate: 120 } });
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -245,3 +249,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([], { status: 200 });
   }
 }
+
+

@@ -1,8 +1,7 @@
-// app/account/page.tsx
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import AccountHeader from "@/components/account/AccountHeader";
 import AccountTabs from "@/components/account/AccountTabs";
@@ -18,15 +17,21 @@ import {
   User,
   WishlistItem,
 } from "@/lib/type";
+
 import {
   getAddress,
   getOrders,
   getProfile,
   rehydrateProducts,
   saveAddress,
+  getAddresses,
+  addAddress,
+  updateAddress,
+  deleteAddress,
+  setDefaultAddress
 } from "@/lib/api";
-// Multi-address state & handlers
-import { getAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } from "@/lib/api";
+
+import { useAuth } from "@/context/AuthContext";
 
 type TabId = "overview" | "orders" | "addresses";
 
@@ -39,9 +44,24 @@ export default function AccountPage() {
 }
 
 function AccountPageContent() {
-  /* ---------- Tabs: support /account?tab=orders ---------- */
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAuthenticated, loading: authLoading, logout } = useAuth();
+
+  const [authReady, setAuthReady] = useState(false);
+
   const initialTab = (searchParams.get("tab") as TabId) || "overview";
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      const target = `${window.location.pathname}${window.location.search}`;
+      router.replace(`/auth/login?redirect=${encodeURIComponent(target)}`);
+      return;
+    }
+    setAuthReady(true);
+  }, [authLoading, isAuthenticated]);
+
   const [active, setActive] = useState<TabId>(initialTab);
 
   useEffect(() => {
@@ -49,43 +69,43 @@ function AccountPageContent() {
     setActive(t);
   }, [searchParams]);
 
-  /* ---------- User ---------- */
+  /* ========== USER ========== */
   const [user, setUser] = useState<User | null>(null);
   useEffect(() => {
+    if (!authReady) return;
     (async () => setUser(await getProfile()))();
-  }, []);
+  }, [authReady]);
 
-  /* ---------- Orders ---------- */
+  /* ========== ORDERS ========== */
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
 
   useEffect(() => {
+    if (!authReady) return;
     (async () => {
       setOrdersLoading(true);
       try {
-        const list = await getOrders(); // must include Bearer token in lib/api
+        const list = await getOrders();
         setOrders(list);
       } finally {
         setOrdersLoading(false);
       }
     })();
-  }, []);
+  }, [authReady]);
 
-  /* ---------- Wishlist (local) + rehydrate ---------- */
+  /* ========== WISHLIST ========== */
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [rehydrated, setRehydrated] = useState<Record<string, ProductLite>>({});
 
   useEffect(() => {
-    const load = () => {
-      try {
-        const raw = localStorage.getItem("wishlist");
-        setWishlist(raw ? JSON.parse(raw) : []);
-      } catch {
-        setWishlist([]);
-      }
+    const raw = localStorage.getItem("wishlist");
+    setWishlist(raw ? JSON.parse(raw) : []);
+
+    const handler = () => {
+      const r = localStorage.getItem("wishlist");
+      setWishlist(r ? JSON.parse(r) : []);
     };
-    load();
-    const handler = () => load();
+
     window.addEventListener("wishlist-updated", handler);
     return () => window.removeEventListener("wishlist-updated", handler);
   }, []);
@@ -99,17 +119,15 @@ function AccountPageContent() {
   }, [wishlist]);
 
   const removeFromWishlist = (productId: string) => {
-    try {
-      const raw = localStorage.getItem("wishlist");
-      const arr: WishlistItem[] = raw ? JSON.parse(raw) : [];
-      const next = arr.filter((i) => i.productId !== productId);
-      localStorage.setItem("wishlist", JSON.stringify(next));
-      window.dispatchEvent(new Event("wishlist-updated"));
-    } catch {}
+    const raw = localStorage.getItem("wishlist");
+    const arr: WishlistItem[] = raw ? JSON.parse(raw) : [];
+    const next = arr.filter((i) => i.productId !== productId);
+    localStorage.setItem("wishlist", JSON.stringify(next));
+    window.dispatchEvent(new Event("wishlist-updated"));
   };
 
-  /* ---------- Address (prefill after checkout + from server) ---------- */
-  const [address, setAddress] = useState<Address>({
+  /* ========== ADDRESSES ========== */
+  const emptyAddress: Address = {
     fullName: "",
     phone: "",
     line1: "",
@@ -117,104 +135,104 @@ function AccountPageContent() {
     city: "",
     state: "",
     pincode: "",
-  });
-  // Multi-address state
+  };
+
   const [addresses, setAddresses] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const addressTemplate: Address = { fullName: "", phone: "", line1: "", line2: "", city: "", state: "", pincode: "" };
-  const [draftAddr, setDraftAddr] = useState<Address>(addressTemplate);
-
-  // Load saved addresses
-  useEffect(() => { (async () => setAddresses(await getAddresses()))(); }, []);
-
-  const onSetDefault = async (id: string) => { await setDefaultAddress(id); const list = await getAddresses(); setAddresses(list); try { const chosen = list.find((a:any)=>a.isDefault) || list.find((a:any)=>a._id===id); if (chosen) { localStorage.setItem("last_shipping_address", JSON.stringify({ fullName: chosen.fullName, phone: chosen.phone, line1: chosen.line1, line2: chosen.line2, city: chosen.city, state: chosen.state, pincode: chosen.pincode })); } } catch {} };
-  const onEdit = (a: any) => { setEditingId(a._id); setDraftAddr({ fullName:a.fullName, phone:a.phone, line1:a.line1, line2:a.line2, city:a.city, state:a.state, pincode:a.pincode }); setShowForm(true); };
-  const onDelete = async (id: string) => { await deleteAddress(id); setAddresses(await getAddresses()); };
-  const onSaveDraft = async () => {
-  setAddrSaving("saving");
-  const ok = editingId
-    ? await updateAddress(editingId, draftAddr)
-    : !!(await addAddress(draftAddr, addresses.length === 0));
-  setAddrSaving(ok ? "saved" : "error");
-  if (ok) {
-    try {
-      localStorage.setItem("last_shipping_address", JSON.stringify(draftAddr));
-    } catch {}
-    setShowForm(false);
-    setEditingId(null);
-    setDraftAddr(addressTemplate);
-    setAddresses(await getAddresses());
-  }
-  setTimeout(() => setAddrSaving("idle"), 1200);
-};
-  const [addrLoading, setAddrLoading] = useState(false);
-  const [addrSaving, setAddrSaving] =
-    useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [draftAddr, setDraftAddr] = useState<Address>(emptyAddress);
 
   useEffect(() => {
-    (async () => {
-      setAddrLoading(true);
-      try {
-        // Prefill from checkout
-        const last = localStorage.getItem("last_shipping_address");
-        if (last) setAddress((prev) => ({ ...prev, ...JSON.parse(last) }));
+    if (!authReady) return;
+    (async () => setAddresses(await getAddresses()))();
+  }, [authReady]);
 
-        // Merge with server-stored profile address (wins if exists)
-        const srv = await getAddress();
-        if (srv) setAddress((prev) => ({ ...prev, ...srv }));
-      } finally {
-        setAddrLoading(false);
-      }
-    })();
-  }, []);
+  const onSetDefault = async (id: string) => {
+    await setDefaultAddress(id);
+    setAddresses(await getAddresses());
+  };
 
-  const onSaveAddress = async () => {
-    setAddrSaving("saving");
-    const ok = await saveAddress(address);
-    if (ok) {
-      localStorage.setItem("last_shipping_address", JSON.stringify(address));
-      setAddrSaving("saved");
-      setTimeout(() => setAddrSaving("idle"), 1500);
+  const onEdit = (addr: any) => {
+    setEditingId(addr._id);
+    setDraftAddr({
+      fullName: addr.fullName,
+      phone: addr.phone,
+      line1: addr.line1,
+      line2: addr.line2 || "",
+      city: addr.city,
+      state: addr.state,
+      pincode: addr.pincode,
+    });
+    setShowForm(true);
+  };
+
+  const onDelete = async (id: string) => {
+    await deleteAddress(id);
+    setAddresses(await getAddresses());
+  };
+
+  const onSaveDraft = async () => {
+    let ok = false;
+
+    if (editingId) {
+      ok = await updateAddress(editingId, draftAddr);
     } else {
-      setAddrSaving("error");
+      ok = await addAddress(draftAddr, addresses.length === 0);
+    }
+
+    if (ok) {
+      setShowForm(false);
+      setEditingId(null);
+      setDraftAddr(emptyAddress);
+      setAddresses(await getAddresses());
     }
   };
 
-  /* ---------- Derived ---------- */
+  /* ========== UI ========== */
   const deliveredCount = useMemo(
     () => orders.filter((o) => o.status === "DELIVERED").length,
     [orders]
   );
 
-  /* ---------- UI ---------- */
+  if (!authReady) {
+    return (
+      <section className="min-h-screen bg-gray-50 pt-[var(--header-offset)]">
+        <AccountHeader user={null} />
+        <div className="max-w-4xl mx-auto px-4 py-16 text-gray-500">
+          Loading your account…
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="min-h-screen bg-gray-50 pt-[var(--header-offset)]">
-      <AccountHeader user={user} />
+      <AccountHeader user={user} onLogout={logout} />
       <AccountTabs active={active} setActive={setActive} />
 
-      {/* Overview */}
       {active === "overview" && (
         <OverviewTiles
           ordersCount={orders.length}
-
           deliveredCount={deliveredCount}
           onRecentClick={() => setActive("orders")}
-
           onDeliveredClick={() => setActive("orders")}
         />
       )}
 
-      {/* Orders */}
       {active === "orders" && (
         <OrdersList orders={orders} loading={ordersLoading} />
-      )}`n      {/* Addresses */}
+      )}
+
       {active === "addresses" && (
         <div className="max-w-7xl mx-auto px-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold">Your Addresses</h3>
             <button
-              onClick={() => { setEditingId(null); setDraftAddr(addressTemplate); setShowForm(true); }}
+              onClick={() => {
+                setEditingId(null);
+                setDraftAddr(emptyAddress);
+                setShowForm(true);
+              }}
               className="px-4 py-2 rounded-lg bg-black text-white hover:bg-gray-800"
             >
               Add New
@@ -232,15 +250,23 @@ function AccountPageContent() {
                     <p>{a.city}, {a.state} {a.pincode}</p>
                     <p>Phone: {a.phone}</p>
                     {a.isDefault && (
-                      <span className="inline-block mt-2 text-xs px-2 py-1 rounded bg-green-100 text-green-700">Default</span>
+                      <span className="inline-block mt-2 text-xs px-2 py-1 rounded bg-green-100 text-green-700">
+                        Default
+                      </span>
                     )}
                   </div>
                   <div className="space-x-2">
                     {!a.isDefault && (
-                      <button onClick={() => onSetDefault(a._id)} className="text-sm underline">Set default</button>
+                      <button onClick={() => onSetDefault(a._id)} className="text-sm underline">
+                        Set default
+                      </button>
                     )}
-                    <button onClick={() => onEdit(a)} className="text-sm underline">Edit</button>
-                    <button onClick={() => onDelete(a._id)} className="text-sm text-red-600 underline">Delete</button>
+                    <button onClick={() => onEdit(a)} className="text-sm underline">
+                      Edit
+                    </button>
+                    <button onClick={() => onDelete(a._id)} className="text-sm text-red-600 underline">
+                      Delete
+                    </button>
                   </div>
                 </div>
               </div>
@@ -250,9 +276,9 @@ function AccountPageContent() {
           {showForm && (
             <AddressForm
               address={draftAddr}
-              setAddress={(updater) => setDraftAddr(updater(draftAddr))}
-              loading={addrLoading}
-              saving={addrSaving}
+              setAddress={setDraftAddr}
+              loading={false}
+              saving={"idle"}
               onSave={onSaveDraft}
             />
           )}

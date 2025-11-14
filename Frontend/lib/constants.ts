@@ -1,9 +1,22 @@
 // C:\NAZMI_BOUTIQUE\Frontend\lib\constants.ts
 
 // API Configuration
-// Prefer NEXT_PUBLIC_API_URL if set; fall back to legacy NEXT_PUBLIC_API_BASE
+const PUBLIC_API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "";
+
+const SERVER_API_BASE =
+  process.env.BACKEND_API_URL ||
+  process.env.API_BASE_URL ||
+  PUBLIC_API_BASE ||
+  'http://localhost:5000';
+
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:5000';
+  typeof window === "undefined" ? SERVER_API_BASE : PUBLIC_API_BASE || "";
+
+export const API_BASE_BROWSER = PUBLIC_API_BASE;
+export const API_BASE_SERVER = SERVER_API_BASE;
 
 // Razorpay Configuration
 export const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_RZFeCq3NZLg9Rz';
