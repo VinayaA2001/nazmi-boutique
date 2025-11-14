@@ -312,34 +312,49 @@ def register():
         if not EMAIL_RE.fullmatch(email):
             return jsonify({"error": "Please enter a valid email address"}), 400
 
-        if db.users.find_one({"email": email}):
+        verification_token, verification_expires = _new_verification_token()
+        existing = db.users.find_one({"email": email})
+
+        if existing and existing.get("email_verified"):
             return jsonify({"error": "User already exists with this email"}), 400
 
-        verification_token, verification_expires = _new_verification_token()
-        user_data = {
-            "username": username,
-            "email": email,
-            "phone": phone,
-            "password": generate_password_hash(password),
-            "created_at": datetime.utcnow(),
-            "is_active": False,
-            "is_admin": False,
-            "email_verified": False,
-            "profile": {"phone": phone, "address": ""},
-            "verification_token": verification_token,
-            "verification_expires": verification_expires,
-        }
-        result = db.users.insert_one(user_data)
+        if existing:
+            db.users.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {
+                    "username": username,
+                    "phone": phone,
+                    "password": generate_password_hash(password),
+                    "profile.phone": phone,
+                    "verification_token": verification_token,
+                    "verification_expires": verification_expires,
+                    "updated_at": datetime.utcnow(),
+                }}
+            )
+        else:
+            pending = {
+                "username": username,
+                "email": email,
+                "phone": phone,
+                "password": generate_password_hash(password),
+                "created_at": datetime.utcnow(),
+                "is_active": False,
+                "is_admin": False,
+                "email_verified": False,
+                "profile": {"phone": phone, "address": ""},
+                "verification_token": verification_token,
+                "verification_expires": verification_expires,
+            }
+            db.users.insert_one(pending)
 
         try:
             _send_verification_email(email, verification_token)
         except Exception:
             logging.exception("Verification email send error")
-            db.users.delete_one({"_id": result.inserted_id})
             return jsonify({"error": "Failed to send verification email. Please try again."}), 500
 
         return jsonify({
-            "message": "Account created. Check your email to verify before signing in.",
+            "message": "Check your email to verify before signing in.",
             "requiresVerification": True,
         }), 201
     except Exception:

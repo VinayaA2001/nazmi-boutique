@@ -2,19 +2,14 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { postJSON, API } from "@/lib/api";
-
-function setCookie(name: string, value: string, days = 7) {
-  const maxAge = days * 24 * 60 * 60;
-  const secure =
-    typeof window !== "undefined" && window.location.protocol === "https:" ? "; Secure" : "";
-  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
-}
+import { postJSON } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 export default function LoginClient() {
   const router = useRouter();
   const sp = useSearchParams();
   const redirect = sp.get("redirect") || "/account";
+  const { login } = useAuth();
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -30,19 +25,7 @@ export default function LoginClient() {
     setErr(null);
     setBusy(true);
     try {
-      const data = await postJSON<{ message: string; token: string; user: any }>(
-        `/api/auth/login`,
-        { email: identifier, password }
-      );
-
-      try {
-        localStorage.setItem("auth_token", data.token);
-        localStorage.setItem("auth_user", JSON.stringify(data.user ?? {}));
-      } catch {}
-
-      setCookie("auth_token", data.token, 7);
-      setCookie("user", JSON.stringify(data.user ?? {}), 7);
-
+      await login(identifier, password);
       router.replace(redirect);
     } catch (e: any) {
       setErr(e?.message || "Invalid email or password");

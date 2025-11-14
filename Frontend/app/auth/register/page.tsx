@@ -12,6 +12,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPass] = useState("");
+  const [confirmPassword, setConfirmPass] = useState(""); // ✅ New state
   const [err, setErr] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -20,6 +21,13 @@ export default function RegisterPage() {
     e.preventDefault();
     setErr(null);
     setSuccess(null);
+
+    // ✅ Check if passwords match
+    if (password !== confirmPassword) {
+      setErr("Passwords do not match");
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await register({ firstName, lastName, email, phone, password });
@@ -52,8 +60,11 @@ export default function RegisterPage() {
           <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-md p-3 mb-4">
             <p>{success}</p>
             <p className="text-xs text-green-800 mt-2">
-              Didn&apos;t get the email? Visit the <Link className="underline" href="/verify">verification page</Link> to
-              enter your code or request another link.
+              Didn&apos;t get the email? Visit the{" "}
+              <Link className="underline" href="/verify">
+                verification page
+              </Link>{" "}
+              to enter your code or request another link.
             </p>
           </div>
         )}
@@ -74,6 +85,7 @@ export default function RegisterPage() {
               onChange={(e) => setLast(e.target.value)}
             />
           </div>
+
           <input
             className="border rounded-lg p-3 w-full"
             type="email"
@@ -82,6 +94,7 @@ export default function RegisterPage() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
+
           <input
             className="border rounded-lg p-3 w-full"
             type="tel"
@@ -89,12 +102,23 @@ export default function RegisterPage() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
+
           <input
             className="border rounded-lg p-3 w-full"
             type="password"
             placeholder="Password *"
             value={password}
             onChange={(e) => setPass(e.target.value)}
+            required
+          />
+
+          {/* ✅ Confirm Password Field */}
+          <input
+            className="border rounded-lg p-3 w-full"
+            type="password"
+            placeholder="Confirm Password *"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPass(e.target.value)}
             required
           />
 
@@ -108,7 +132,10 @@ export default function RegisterPage() {
         </form>
 
         <p className="text-sm text-gray-600 mt-4">
-          Already have an account? <Link href="/auth/login" className="underline">Sign in</Link>
+          Already have an account?{" "}
+          <Link href="/auth/login" className="underline">
+            Sign in
+          </Link>
         </p>
       </div>
     </div>

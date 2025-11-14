@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { API_BASE } from "./constants";
-import type { Address, Order, ProductLite, User } from "./type";
+import type { Address, AddressItem, Order, ProductLite, User } from "./type";
 
 /* ============================================================
    === Tiny API Helper (client-safe, unified)
@@ -202,19 +202,42 @@ export const rehydrateProducts = async (
 
 export const getAddress = async (): Promise<Partial<Address> | null> => {
   try {
+    const res = await apiFetch(`/api/user/addresses`, {
+      method: "GET",
+      headers: { ...authHeaders() },
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const data = await getJSON<{ addresses: AddressItem[]; defaultId?: string }>(res);
+      const list = data?.addresses ?? [];
+      if (!list.length) return null;
+      const preferredId = data?.defaultId || list.find((a) => a.isDefault)?._id;
+      const chosen = preferredId
+        ? list.find((a) => String(a._id) === String(preferredId))
+        : list[0];
+      if (chosen) {
+        const { fullName, phone, line1, line2, city, state, pincode } = chosen;
+        return { fullName, phone, line1, line2, city, state, pincode };
+      }
+    }
+  } catch (err) {
+    console.warn("[getAddress] failed to load multi-address list:", err);
+  }
+  try {
     const profile = await getProfile();
     return (profile?.profile as Partial<Address>) ?? null;
   } catch (err) {
-    console.warn("[getAddress] failed:", err);
+    console.warn("[getAddress] profile fallback failed:", err);
     return null;
   }
 };
 
 export async function saveAddress(addr: Address): Promise<boolean> {
   try {
+    const auth = authHeaders();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...authHeaders(),
+      ...auth,
     };
 
     const addressData = {
@@ -227,27 +250,42 @@ export async function saveAddress(addr: Address): Promise<boolean> {
       pincode: String(addr.pincode ?? "").trim(),
     };
 
-    const res = await apiFetch(`${API}/api/auth/profile`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ profile: addressData }),
-    });
-
-    if (res.ok) return true;
-
-    // Fallback
-    if (res.status === 405 || res.status === 404) {
-      const fallback = await apiFetch(`${API}/api/user/address`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(addressData),
+    let existing: AddressItem[] = [];
+    let defaultId: string | undefined;
+    try {
+      const res = await apiFetch(`/api/user/addresses`, {
+        method: "GET",
+        headers: { ...auth },
+        cache: "no-store",
       });
-      if (fallback.ok) return true;
-      await logFailure("Address save fallback", fallback);
+      if (res.ok) {
+        const data = await getJSON<{ addresses: AddressItem[]; defaultId?: string }>(res);
+        existing = data?.addresses ?? [];
+        defaultId = data?.defaultId || existing.find((a) => a.isDefault)?._id;
+      }
+    } catch (err) {
+      console.warn("[saveAddress] address list fetch failed:", err);
     }
 
-    await logFailure("Profile update", res);
-    if (res.status === 401 || res.status === 403) {
+    if (defaultId) {
+      const updateRes = await apiFetch(`/api/user/addresses/${defaultId}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ ...addressData, isDefault: true }),
+      });
+      if (updateRes.ok) return true;
+      await logFailure("Address update", updateRes);
+    }
+
+    const createRes = await apiFetch(`/api/user/addresses`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...addressData, isDefault: existing.length === 0 }),
+    });
+    if (createRes.ok) return true;
+
+    await logFailure("Address create", createRes);
+    if (createRes.status === 401 || createRes.status === 403) {
       console.warn(
         "[saveAddress] Unauthorized. Ensure localStorage has a valid 'auth_token'."
       );
