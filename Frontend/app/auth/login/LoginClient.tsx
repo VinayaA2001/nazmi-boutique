@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// app/auth/login/LoginClient.tsx
+"use client";
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -14,18 +15,23 @@ export default function LoginClient() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [needsVerify, setNeedsVerify] = useState(false);
 
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState<string | null>(null);
+  const [forgotBusy, setForgotBusy] = useState(false);
+
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    setSuccess(null);
     setNeedsVerify(false);
     setBusy(true);
+
     try {
       await login(identifier, password);
       router.replace(redirect);
@@ -42,9 +48,11 @@ export default function LoginClient() {
   }
 
   async function resendVerify() {
+    setErr(null);
+    setSuccess(null);
     try {
       await resendVerification(identifier.trim().toLowerCase());
-      setErr("Verification email sent. Please check your inbox.");
+      setSuccess("Verification email sent. Please check your inbox and spam folder.");
     } catch (e: any) {
       setErr(e?.message || "Failed to resend verification email");
     }
@@ -52,18 +60,33 @@ export default function LoginClient() {
 
   async function sendForgot() {
     setForgotMsg(null);
+    setErr(null);
+
+    const email = forgotEmail.trim();
+    if (!email) {
+      setForgotMsg("Please enter your email address.");
+      return;
+    }
+
+    setForgotBusy(true);
     try {
-      await postJSON(`/api/auth/forgot-password`, { email: forgotEmail });
+      await postJSON(`/api/auth/forgot-password`, { email });
       setForgotMsg("If an account exists, a reset link has been sent to your email.");
+      setForgotEmail("");
     } catch (e: any) {
-      setForgotMsg(e?.message || "Unable to send reset link");
+      setForgotMsg(e?.message || "Unable to send reset link. Please try again.");
+    } finally {
+      setForgotBusy(false);
     }
   }
 
   return (
     <div className="min-h-screen flex items-start justify-center bg-gray-50 pt-16 px-4">
       <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-        <h1 className="text-2xl font-bold mb-1 text-center">Sign in to Nazmi Boutique</h1>
+        
+        <h1 className="text-2xl font-bold text-center mb-1">
+          Sign in to Nazmi Boutique
+        </h1>
         <p className="text-sm text-gray-600 text-center mb-6">Use your email</p>
 
         {err && (
@@ -71,9 +94,23 @@ export default function LoginClient() {
             {err}
           </div>
         )}
+
+        {success && (
+          <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-md px-3 py-2 mb-3">
+            {success}
+          </div>
+        )}
+
         {needsVerify && (
           <p className="text-sm text-gray-700 mb-4">
-            Didn&apos;t get it? <button type="button" onClick={resendVerify} className="underline">Resend verification email</button>
+            Didn&apos;t get it?{" "}
+            <button
+              type="button"
+              onClick={resendVerify}
+              className="underline font-medium"
+            >
+              Resend verification email
+            </button>
           </p>
         )}
 
@@ -83,7 +120,11 @@ export default function LoginClient() {
             <input
               type="email"
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={(e) => {
+                setIdentifier(e.target.value);
+                if (err) setErr(null);
+                if (success) setSuccess(null);
+              }}
               placeholder="you@example.com"
               className="mt-1 w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
               autoComplete="username"
@@ -96,7 +137,11 @@ export default function LoginClient() {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (err) setErr(null);
+                if (success) setSuccess(null);
+              }}
               className="mt-1 w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
               autoComplete="current-password"
               required
@@ -112,11 +157,22 @@ export default function LoginClient() {
           </button>
         </form>
 
-        <div className="flex items-center justify-between mt-4 text-sm">
-          <button onClick={() => setForgotOpen(true)} className="text-black underline">
+        {/* FIXED ALIGNMENT SECTION */}
+        <div className="flex flex-col items-center gap-2 mt-5 text-sm text-center">
+          <button
+            onClick={() => {
+              setForgotOpen(true);
+              setForgotMsg(null);
+            }}
+            className="text-black underline"
+          >
             Forgot password?
           </button>
-          <button onClick={() => router.push("/auth/register")} className="text-gray-700 hover:text-black">
+
+          <button
+            onClick={() => router.push("/auth/register")}
+            className="text-gray-700 hover:text-black"
+          >
             Don&apos;t have an account? <span className="underline">Create one here</span>
           </button>
         </div>
@@ -127,11 +183,18 @@ export default function LoginClient() {
           <div className="bg-white w-full max-w-md rounded-xl p-6 shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold">Reset your password</h3>
-              <button onClick={() => setForgotOpen(false)} className="text-2xl leading-none">×</button>
+              <button
+                onClick={() => setForgotOpen(false)}
+                className="text-2xl leading-none"
+              >
+                ×
+              </button>
             </div>
+
             <p className="text-sm text-gray-600 mb-4">
               Enter your account email. We&apos;ll send a reset link if an account exists.
             </p>
+
             <input
               type="email"
               value={forgotEmail}
@@ -139,10 +202,18 @@ export default function LoginClient() {
               placeholder="you@example.com"
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent mb-3"
             />
-            <button onClick={sendForgot} className="w-full bg-black text-white py-3 rounded-lg font-semibold hover:bg-gray-800">
-              Send reset link
+
+            <button
+              onClick={sendForgot}
+              disabled={forgotBusy}
+              className="w-full bg-black text-white py-3 rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-60"
+            >
+              {forgotBusy ? "Sending reset link..." : "Send reset link"}
             </button>
-            {forgotMsg && <p className="text-sm text-center mt-3">{forgotMsg}</p>}
+
+            {forgotMsg && (
+              <p className="text-sm text-center mt-3 text-gray-700">{forgotMsg}</p>
+            )}
           </div>
         </div>
       )}

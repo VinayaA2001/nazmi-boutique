@@ -1,5 +1,6 @@
-// app/product/[slug]/page.tsx
+﻿// app/product/[slug]/page.tsx
 import ProductDetailsClient from "@/components/commerce/ProductDetailsClient";
+import { fetchProduct, type NormalizedProduct } from "@/lib/product";
 
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {

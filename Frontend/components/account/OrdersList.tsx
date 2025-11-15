@@ -75,6 +75,118 @@ function daysLeft(d?: any): number | null {
 }
 
 /* =========================
+   Item helpers (shared logic)
+   ========================= */
+
+type AnyItem = {
+  name?: string;
+  product_name?: string;
+  size?: string;
+  selectedSize?: string;
+  color?: string;
+  selectedColor?: string;
+  image?: string;
+  imageUrl?: string;
+  image_url?: string;
+  productImage?: string;
+  product_image?: string;
+  images?: string[];
+  imageUrls?: string[];
+  productImages?: string[];
+  category?: string;
+  product_code?: string;
+  productCode?: string;
+  product_id?: string;
+  productId?: string;
+  product?: {
+    _id?: string;
+    name?: string;
+    slug?: string;
+    category?: string;
+    image?: string;
+    images?: string[];
+  };
+};
+
+function getThumb(item: AnyItem | undefined): string | undefined {
+  if (!item) return undefined;
+  const p = item.product || {};
+
+  return (
+    item.image ||
+    item.imageUrl ||
+    item.image_url ||
+    item.productImage ||
+    item.product_image ||
+    (Array.isArray(item.images) && item.images[0]) ||
+    (Array.isArray(item.imageUrls) && item.imageUrls[0]) ||
+    (Array.isArray(item.productImages) && item.productImages[0]) ||
+    p.image ||
+    (Array.isArray(p.images) && p.images[0]) ||
+    undefined
+  );
+}
+
+function itemTitle(item: AnyItem | undefined): string {
+  if (!item) return "Order items";
+  return item.name || item.product_name || item.product?.name || "Product";
+}
+
+function productSlugFromItem(item: AnyItem | undefined): string {
+  if (!item) return "";
+  const rawSlug =
+    (item as any).slug ||
+    (item as any)?.product?.slug;
+
+  if (typeof rawSlug === "string" && rawSlug.trim()) {
+    return rawSlug.trim();
+  }
+
+  const name =
+    item.name ||
+    (item as any)?.product_name ||
+    (item as any)?.product?.name ||
+    "product";
+
+  const code =
+    (item as any).product_code ||
+    (item as any).productCode ||
+    "";
+
+  const slugify = (s: string) =>
+    s
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+
+  return slugify(`${name}${code ? `-${code}` : ""}`);
+}
+
+function productHref(item: AnyItem | undefined): string {
+  if (!item) return "#";
+
+  const slug = productSlugFromItem(item);
+
+  // Try to infer category to decide route
+  const catRaw =
+    (item as any).category ||
+    (item as any)?.product?.category ||
+    "";
+  const cat = String(catRaw).toLowerCase();
+
+  // Default: ethnic route (since your main product page is /Ethnic-Wears/[slug])
+  let base = "/Ethnic-Wears";
+
+  if (cat.includes("west")) {
+    // For western category items
+    base = "/western";
+  }
+
+  return `${base}/${slug || "item"}`;
+}
+
+/* =========================
    Component
    ========================= */
 
@@ -134,7 +246,7 @@ export default function OrdersList({
             ? "bg-yellow-100 text-yellow-700"
             : "bg-red-100 text-red-700";
 
-        const items = ((o as any).items ?? []) as any[];
+        const items = ((o as any).items ?? []) as AnyItem[];
         const firstItem = items[0];
         const itemCount = items.length;
 
@@ -148,28 +260,13 @@ export default function OrdersList({
           (o as any).expectedDelivery ?? (o as any).expected_delivery;
         const etaDays = daysLeft(expectedDelivery);
 
-        const stepIndex = statusIndex(status);
+        const stepIndexVal = statusIndex(status);
 
-        // 🔹 IMAGE FALLBACKS – try multiple field names from order item AND nested product
-        let thumbSrc: string | undefined;
-        if (firstItem) {
-          const p = (firstItem as any).product ?? {};
-          thumbSrc =
-            firstItem.image ||
-            firstItem.imageUrl ||
-            firstItem.image_url ||
-            firstItem.productImage ||
-            firstItem.product_image ||
-            (Array.isArray(firstItem.images) && firstItem.images[0]) ||
-            (Array.isArray(firstItem.imageUrls) && firstItem.imageUrls[0]) ||
-            (Array.isArray(firstItem.productImages) &&
-              firstItem.productImages[0]) ||
-            p.image ||
-            (Array.isArray(p.images) && p.images[0]);
-        }
-
+        const thumbSrc = getThumb(firstItem);
         const hasThumb =
           typeof thumbSrc === "string" && thumbSrc.trim().length > 0;
+
+        const productUrl = productHref(firstItem);
 
         return (
           <div
@@ -210,16 +307,19 @@ export default function OrdersList({
 
             {/* Body */}
             <div className="px-4 py-3 flex flex-col md:flex-row gap-4">
-              {/* Thumbnail + basic info */}
-              <div className="flex items-center gap-3 md:w-1/2">
+              {/* Thumbnail + basic info (click goes to product details page) */}
+              <Link
+                href={productUrl}
+                className="flex items-center gap-3 md:w-1/2 group"
+              >
                 <div className="w-16 h-16 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
                   {hasThumb ? (
                     <Image
                       src={thumbSrc as string}
-                      alt={firstItem?.name ?? "Product"}
+                      alt={itemTitle(firstItem)}
                       width={64}
                       height={64}
-                      className="object-cover w-full h-full"
+                      className="object-cover w-full h-full group-hover:scale-105 transition-transform"
                     />
                   ) : (
                     <span className="text-xs text-gray-400">No image</span>
@@ -227,8 +327,8 @@ export default function OrdersList({
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-sm truncate">
-                    {firstItem?.name ?? "Order items"}
+                  <div className="font-medium text-sm truncate group-hover:text-gray-800">
+                    {itemTitle(firstItem)}
                     {itemCount > 1 && (
                       <span className="text-xs text-gray-500 ml-1">
                         + {itemCount - 1} more item
@@ -251,14 +351,12 @@ export default function OrdersList({
                     </div>
                   )}
                 </div>
-              </div>
+              </Link>
 
               {/* Amount + ETA + actions */}
               <div className="md:w-1/2 flex flex-col gap-2 md:items-end">
                 <div className="text-right">
-                  <div className="text-xs text-gray-500">
-                    Order Total
-                  </div>
+                  <div className="text-xs text-gray-500">Order Total</div>
                   <div className="text-lg font-semibold">
                     {formatINR(totalAmount)}
                   </div>
@@ -277,14 +375,12 @@ export default function OrdersList({
                   </div>
                   <div className="flex items-center gap-1">
                     {STATUS_STEPS.map((step, idx) => {
-                      const active = idx <= stepIndex;
+                      const active = idx <= stepIndexVal;
                       return (
                         <div
                           key={step}
                           className={`h-1 flex-1 rounded-full ${
-                            active
-                              ? "bg-green-500"
-                              : "bg-gray-200"
+                            active ? "bg-green-500" : "bg-gray-200"
                           }`}
                         />
                       );
@@ -311,7 +407,7 @@ export default function OrdersList({
                     href={`/account/orders/${id}`}
                     className="px-3 py-1.5 text-xs border rounded-full hover:bg-gray-50 transition"
                   >
-                    View details
+                    View order details
                   </Link>
                   <Link
                     href="/"

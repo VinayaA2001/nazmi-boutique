@@ -1,3 +1,4 @@
+// C:\NAZMI_BOUTIQUE\Frontend\app\api\verify-email\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { MongoClient } from "mongodb";
 
@@ -16,21 +17,29 @@ export async function OPTIONS() {
   return withCors(NextResponse.json({}));
 }
 
-let client: MongoClient;
+// ---------- Mongo Helpers ----------
+let client: MongoClient | null = null;
+
 async function getCols() {
   const uri = process.env.MONGO_URI || process.env.DATABASE_URL || "";
-  if (!uri) throw new Error("DB not configured (MONGO_URI/DATABASE_URL missing)");
-  if (!client || !(client as any).topology?.isConnected?.()) {
+  if (!uri) {
+    throw new Error("DB not configured (MONGO_URI/DATABASE_URL missing)");
+  }
+
+  // Reuse client across requests
+  if (!client) {
     client = new MongoClient(uri);
     await client.connect();
   }
+
   const db = client.db();
-  // Prisma default collection names are model names
+  // Prisma default collection names are often model names
   const users = db.collection("User");
   const tokens = db.collection("VerificationToken");
   return { users, tokens };
 }
 
+// ---------- POST /api/verify-email ----------
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -39,40 +48,80 @@ export async function POST(req: NextRequest) {
 
     if (!token || !email) {
       return withCors(
-        NextResponse.json({ code: "MISSING_FIELDS", message: "Token and email are required" }, { status: 400 })
+        NextResponse.json(
+          {
+            code: "MISSING_FIELDS",
+            message: "Token and email are required",
+          },
+          { status: 400 }
+        )
       );
     }
 
     const { users, tokens } = await getCols();
+
     // 1) Look up token in Mongo
     const vt = await tokens.findOne({ token });
-    const vtEmail = (String(vt?.identifier || "")).toLowerCase();
+    const vtEmail = String(vt?.identifier || "").toLowerCase();
+
     if (!vt || vtEmail !== email) {
       return withCors(
-        NextResponse.json({ code: "INVALID_TOKEN", message: "Invalid or already used token" }, { status: 400 })
+        NextResponse.json(
+          {
+            code: "INVALID_TOKEN",
+            message: "Invalid or already used token",
+          },
+          { status: 400 }
+        )
       );
     }
 
     // 2) Check expiry
     if (vt.expires && new Date(vt.expires) < new Date()) {
       await tokens.deleteOne({ token }).catch(() => {});
-      return withCors(NextResponse.json({ code: "TOKEN_EXPIRED", message: "Token expired" }, { status: 400 }));
+      return withCors(
+        NextResponse.json(
+          {
+            code: "TOKEN_EXPIRED",
+            message: "Token expired",
+          },
+          { status: 400 }
+        )
+      );
     }
 
     // 3) Verify user + consume token atomically
-    const session = client.startSession();
+    const session = client!.startSession();
+
     try {
       await session.withTransaction(async () => {
-        await users.updateMany({ email }, { $set: { emailVerified: new Date() } }, { session });
+        await users.updateMany(
+          { email },
+          { $set: { emailVerified: new Date() } },
+          { session }
+        );
         await tokens.deleteOne({ token }, { session });
       });
     } finally {
       await session.endSession();
     }
 
-    return withCors(NextResponse.json({ message: "Email verified successfully" }, { status: 200 }));
+    return withCors(
+      NextResponse.json(
+        { message: "Email verified successfully" },
+        { status: 200 }
+      )
+    );
   } catch (e) {
     console.error("[verify-email] error:", e);
-    return withCors(NextResponse.json({ code: "INTERNAL", message: "Internal server error" }, { status: 500 }));
+    return withCors(
+      NextResponse.json(
+        {
+          code: "INTERNAL",
+          message: "Internal server error",
+        },
+        { status: 500 }
+      )
+    );
   }
 }

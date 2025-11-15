@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// app/auth/register/page.tsx (or wherever this lives)
+"use client";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -21,29 +22,61 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
 
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
-  const phoneValid = useMemo(() => !phone.trim() || PHONE_RE.test(phone.trim()), [phone]);
+  const phoneValid = useMemo(
+    () => !phone.trim() || PHONE_RE.test(phone.trim()),
+    [phone]
+  );
   const passwordValid = useMemo(() => password.length >= 8, [password]);
-  const canSubmit = emailValid && phoneValid && passwordValid && password === confirmPassword && !!firstName.trim();
+
+  const canSubmit =
+    emailValid &&
+    phoneValid &&
+    passwordValid &&
+    password === confirmPassword &&
+    !!firstName.trim();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
     setSuccess(null);
 
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPhone = phone.trim();
+
     if (!emailValid) return setErr("Please enter a valid email"), undefined;
     if (!phoneValid) return setErr("Please enter a valid 10-digit mobile"), undefined;
     if (!passwordValid) return setErr("Password must be at least 8 characters"), undefined;
-    if (password !== confirmPassword) return setErr("Passwords do not match"), undefined;
+    if (password !== confirmPassword)
+      return setErr("Passwords do not match"), undefined;
 
     setLoading(true);
     try {
-      const response = await register({ firstName, lastName, email: email.trim().toLowerCase(), phone: phone.trim(), password });
+      const response = await register({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: trimmedEmail,
+        phone: trimmedPhone,
+        password,
+      });
+
+      // ✅ Clear form fields
+      setFirst("");
+      setLast("");
+      setEmail("");
+      setPhone("");
+      setPass("");
+      setConfirmPass("");
+
+      // ✅ Clear any previous error
+      setErr(null);
+
+      // ✅ Strong, clear success message
       setSuccess(
         response?.message ||
-          "Account created! Please check your inbox for a verification link before signing in."
+          `Account created successfully! We’ve sent a verification mail to ${trimmedEmail}. Please check your inbox and spam folder before signing in.`
       );
     } catch (e: any) {
-      setErr(e?.message || "Registration failed");
+      setErr(e?.message || "Registration failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -66,13 +99,6 @@ export default function RegisterPage() {
         {success && (
           <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-md p-3 mb-4">
             <p>{success}</p>
-            <p className="text-xs text-green-800 mt-2">
-              Didn&apos;t get the email? Visit the{" "}
-              <Link className="underline" href="/verify">
-                verification page
-              </Link>{" "}
-              to enter your code or request another link.
-            </p>
           </div>
         )}
 
@@ -82,49 +108,77 @@ export default function RegisterPage() {
               className="border rounded-lg p-3"
               placeholder="First name *"
               value={firstName}
-              onChange={(e) => setFirst(e.target.value)}
+              onChange={(e) => {
+                setFirst(e.target.value);
+                if (err) setErr(null);
+              }}
               required
             />
             <input
               className="border rounded-lg p-3"
               placeholder="Last name"
               value={lastName}
-              onChange={(e) => setLast(e.target.value)}
+              onChange={(e) => {
+                setLast(e.target.value);
+                if (err) setErr(null);
+              }}
             />
           </div>
 
           <input
-            className={`border rounded-lg p-3 w-full ${email && !emailValid ? 'border-red-400' : ''}`}
+            className={`border rounded-lg p-3 w-full ${
+              email && !emailValid ? "border-red-400" : ""
+            }`}
             type="email"
             placeholder="Email *"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (err) setErr(null);
+            }}
             required
           />
 
           <input
-            className={`border rounded-lg p-3 w-full ${phone && !phoneValid ? 'border-red-400' : ''}`}
+            className={`border rounded-lg p-3 w-full ${
+              phone && !phoneValid ? "border-red-400" : ""
+            }`}
             type="tel"
             placeholder="Phone (optional)"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              if (err) setErr(null);
+            }}
           />
 
           <input
-            className={`border rounded-lg p-3 w-full ${password && !passwordValid ? 'border-red-400' : ''}`}
+            className={`border rounded-lg p-3 w-full ${
+              password && !passwordValid ? "border-red-400" : ""
+            }`}
             type="password"
             placeholder="Password (min 8 chars) *"
             value={password}
-            onChange={(e) => setPass(e.target.value)}
+            onChange={(e) => {
+              setPass(e.target.value);
+              if (err) setErr(null);
+            }}
             required
           />
 
           <input
-            className={`border rounded-lg p-3 w-full ${confirmPassword && confirmPassword !== password ? 'border-red-400' : ''}`}
+            className={`border rounded-lg p-3 w-full ${
+              confirmPassword && confirmPassword !== password
+                ? "border-red-400"
+                : ""
+            }`}
             type="password"
             placeholder="Confirm Password *"
             value={confirmPassword}
-            onChange={(e) => setConfirmPass(e.target.value)}
+            onChange={(e) => {
+              setConfirmPass(e.target.value);
+              if (err) setErr(null);
+            }}
             required
           />
 
@@ -133,7 +187,7 @@ export default function RegisterPage() {
             disabled={loading || !canSubmit}
             className="w-full bg-black text-white py-3 rounded-lg font-semibold disabled:opacity-60"
           >
-            {loading ? "Creating..." : "Create account"}
+            {loading ? "Sending verification mail..." : "Create account"}
           </button>
         </form>
 

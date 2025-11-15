@@ -1,4 +1,4 @@
-// app/api/send-verification-email/route.ts
+// C:\NAZMI_BOUTIQUE\Frontend\app\api\send-verification-email\route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 
@@ -7,6 +7,21 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const isEmail = (s?: string) => !!s && /^\S+@\S+\.\S+$/.test(s);
+
+// minimal HTML escaper for firstName
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, (m) => {
+    return (
+      {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[m] || m
+    );
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,24 +39,34 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.EMAIL_FROM; // e.g. "Nazmi Boutique <no-reply@yourdomain.com>"
+
     if (!apiKey) {
-      return NextResponse.json({ error: "RESEND_API_KEY not configured" }, { status: 500 });
+      return NextResponse.json(
+        { error: "RESEND_API_KEY not configured" },
+        { status: 500 }
+      );
     }
+
     if (!from) {
-      return NextResponse.json({ error: "EMAIL_FROM not configured" }, { status: 500 });
+      return NextResponse.json(
+        { error: "EMAIL_FROM not configured" },
+        { status: 500 }
+      );
     }
 
     const resend = new Resend(apiKey);
 
     // Prefer request origin to avoid wrong host in links
     const origin =
-      // req.nextUrl.origin is reliable across dev/prod
       req.nextUrl.origin ||
       process.env.NEXT_PUBLIC_BASE_URL ||
       process.env.NEXTAUTH_URL ||
       "http://localhost:3000";
 
-    const verify = new URL("/verify-email", origin);
+    // 🔴 IMPORTANT:
+    // Your frontend verify page is at /verify (app/verify/page.tsx),
+    // so we use "/verify" here. Change to "/verify-email" only if your route is different.
+    const verify = new URL("/verify", origin);
     verify.searchParams.set("token", token);
     verify.searchParams.set("email", email);
     const verifyUrl = verify.toString();
@@ -59,17 +84,23 @@ export async function POST(req: NextRequest) {
               Verify Email
             </a>
           </p>
-          <p style="color:#666;font-size:12px">If the button doesn't work, copy & paste this link:<br>${verifyUrl}</p>
+          <p style="color:#666;font-size:12px">
+            If the button doesn't work, copy & paste this link:<br>
+            ${verifyUrl}
+          </p>
         </div>
       `,
       text: `Hi ${firstName},\n\nVerify your email:\n${verifyUrl}\n`,
-      // optional headers you might like:
+      // You can add reply_to here if needed:
       // reply_to: "support@yourdomain.com",
     });
 
     if (error) {
       // Resend returns structured errors – surface the message
-      return NextResponse.json({ error: error.message || "Failed to send" }, { status: 502 });
+      return NextResponse.json(
+        { error: error.message || "Failed to send" },
+        { status: 502 }
+      );
     }
 
     return NextResponse.json({ ok: true, id: data?.id ?? null });
@@ -80,9 +111,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// minimal HTML escaper for firstName
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]!));
 }

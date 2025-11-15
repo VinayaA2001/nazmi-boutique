@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// C:\NAZMI_BOUTIQUE\Frontend\app\account\page.tsx
+"use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -19,21 +20,19 @@ import {
 } from "@/lib/type";
 
 import {
-  getAddress,
   getOrders,
   getProfile,
   rehydrateProducts,
-  saveAddress,
   getAddresses,
   addAddress,
   updateAddress,
   deleteAddress,
-  setDefaultAddress
+  setDefaultAddress,
 } from "@/lib/api";
 
 import { useAuth } from "@/context/AuthContext";
 
-type TabId = "overview" | "orders" | "addresses";
+type TabId = "overview" | "orders" | "wishlist" | "addresses";
 
 export default function AccountPage() {
   return (
@@ -51,18 +50,20 @@ function AccountPageContent() {
   const [authReady, setAuthReady] = useState(false);
 
   const initialTab = (searchParams.get("tab") as TabId) || "overview";
+  const [active, setActive] = useState<TabId>(initialTab);
 
+  /* ========== AUTH GUARD ========== */
   useEffect(() => {
     if (authLoading) return;
+
     if (!isAuthenticated) {
       const target = `${window.location.pathname}${window.location.search}`;
       router.replace(`/auth/login?redirect=${encodeURIComponent(target)}`);
       return;
     }
-    setAuthReady(true);
-  }, [authLoading, isAuthenticated]);
 
-  const [active, setActive] = useState<TabId>(initialTab);
+    setAuthReady(true);
+  }, [authLoading, isAuthenticated, router]);
 
   useEffect(() => {
     const t = (searchParams.get("tab") as TabId) || "overview";
@@ -71,9 +72,13 @@ function AccountPageContent() {
 
   /* ========== USER ========== */
   const [user, setUser] = useState<User | null>(null);
+
   useEffect(() => {
     if (!authReady) return;
-    (async () => setUser(await getProfile()))();
+    (async () => {
+      const profile = await getProfile();
+      setUser(profile);
+    })();
   }, [authReady]);
 
   /* ========== ORDERS ========== */
@@ -93,7 +98,7 @@ function AccountPageContent() {
     })();
   }, [authReady]);
 
-  /* ========== WISHLIST ========== */
+  /* ========== WISHLIST (localStorage) ========== */
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [rehydrated, setRehydrated] = useState<Record<string, ProductLite>>({});
 
@@ -112,9 +117,13 @@ function AccountPageContent() {
 
   useEffect(() => {
     (async () => {
-      if (!wishlist.length) return setRehydrated({});
+      if (!wishlist.length) {
+        setRehydrated({});
+        return;
+      }
       const ids = wishlist.map((w) => w.productId);
-      setRehydrated(await rehydrateProducts(ids));
+      const products = await rehydrateProducts(ids);
+      setRehydrated(products);
     })();
   }, [wishlist]);
 
@@ -144,12 +153,16 @@ function AccountPageContent() {
 
   useEffect(() => {
     if (!authReady) return;
-    (async () => setAddresses(await getAddresses()))();
+    (async () => {
+      const list = await getAddresses();
+      setAddresses(list);
+    })();
   }, [authReady]);
 
   const onSetDefault = async (id: string) => {
     await setDefaultAddress(id);
-    setAddresses(await getAddresses());
+    const list = await getAddresses();
+    setAddresses(list);
   };
 
   const onEdit = (addr: any) => {
@@ -168,7 +181,8 @@ function AccountPageContent() {
 
   const onDelete = async (id: string) => {
     await deleteAddress(id);
-    setAddresses(await getAddresses());
+    const list = await getAddresses();
+    setAddresses(list);
   };
 
   const onSaveDraft = async () => {
@@ -184,22 +198,24 @@ function AccountPageContent() {
       setShowForm(false);
       setEditingId(null);
       setDraftAddr(emptyAddress);
-      setAddresses(await getAddresses());
+      const list = await getAddresses();
+      setAddresses(list);
     }
   };
 
-  /* ========== UI ========== */
+  /* ========== DERIVED ========== */
   const deliveredCount = useMemo(
     () => orders.filter((o) => o.status === "DELIVERED").length,
     [orders]
   );
 
+  /* ========== RENDER ========== */
   if (!authReady) {
     return (
       <section className="min-h-screen bg-gray-50 pt-[var(--header-offset)]">
         <AccountHeader user={null} />
         <div className="max-w-4xl mx-auto px-4 py-16 text-gray-500">
-          Loading your account…
+          Loading your account...
         </div>
       </section>
     );
@@ -223,6 +239,14 @@ function AccountPageContent() {
         <OrdersList orders={orders} loading={ordersLoading} />
       )}
 
+      {active === "wishlist" && (
+        <WishlistGrid
+          wishlist={wishlist}
+          products={rehydrated}
+          onRemove={removeFromWishlist}
+        />
+      )}
+
       {active === "addresses" && (
         <div className="max-w-7xl mx-auto px-4">
           <div className="mb-4 flex items-center justify-between">
@@ -242,12 +266,14 @@ function AccountPageContent() {
           <div className="grid md:grid-cols-2 gap-4 mb-6">
             {addresses.map((a) => (
               <div key={a._id} className="border rounded-lg p-4 bg-white">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium">{a.fullName}</p>
                     <p>{a.line1}</p>
                     {a.line2 && <p>{a.line2}</p>}
-                    <p>{a.city}, {a.state} {a.pincode}</p>
+                    <p>
+                      {a.city}, {a.state} {a.pincode}
+                    </p>
                     <p>Phone: {a.phone}</p>
                     {a.isDefault && (
                       <span className="inline-block mt-2 text-xs px-2 py-1 rounded bg-green-100 text-green-700">
@@ -255,16 +281,25 @@ function AccountPageContent() {
                       </span>
                     )}
                   </div>
-                  <div className="space-x-2">
+                  <div className="space-y-1 text-right">
                     {!a.isDefault && (
-                      <button onClick={() => onSetDefault(a._id)} className="text-sm underline">
+                      <button
+                        onClick={() => onSetDefault(a._id)}
+                        className="text-xs underline"
+                      >
                         Set default
                       </button>
                     )}
-                    <button onClick={() => onEdit(a)} className="text-sm underline">
+                    <button
+                      onClick={() => onEdit(a)}
+                      className="text-xs underline"
+                    >
                       Edit
                     </button>
-                    <button onClick={() => onDelete(a._id)} className="text-sm text-red-600 underline">
+                    <button
+                      onClick={() => onDelete(a._id)}
+                      className="text-xs text-red-600 underline"
+                    >
                       Delete
                     </button>
                   </div>

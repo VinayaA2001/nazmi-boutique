@@ -44,7 +44,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const SHIPPING_THRESHOLD = 2000;
 const SHIPPING_FEE = 60;
 const inr = (n: number | string) =>
-  `₹${Number(n || 0).toLocaleString("en-IN")}`;
+  `?${Number(n || 0).toLocaleString("en-IN")}`;
 
 async function loadRazorpay(): Promise<boolean> {
   if (typeof window === "undefined") return false;
@@ -311,6 +311,7 @@ function CheckoutContent() {
             quantity: i.quantity,
             size: i.size,
             color: i.color,
+            image: i.image,
             product_code: i.productCode,
           })),
           subtotal,
@@ -918,3 +919,4 @@ export default function CheckoutPage() {
     </Suspense>
   );
 }
+

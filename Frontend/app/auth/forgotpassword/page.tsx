@@ -1,5 +1,6 @@
-import ForgotPasswordClient from './ForgotPasswordClient';
+// app/auth/forgotpassword/page.tsx
+import ForgotPasswordClient from "./ForgotPasswordClient";
 
-export default function ForgotPasswordPage() {
+export default function Page() {
   return <ForgotPasswordClient />;
 }

@@ -1,4 +1,4 @@
-# backend/app.py
+﻿# backend/app.py
 import os
 import re
 import hmac
@@ -552,6 +552,33 @@ def _send_email_safe(msg: Message):
     except Exception as e:
         app.logger.warning(f"Email send skipped/logged. Reason: {e}")
         return False
+
+
+# --- NEW: verification code email helper ---
+def _send_verification_code_email(email: str, code: str):
+    """Email a 6-digit verification code to the user."""
+    try:
+        verify_url = f"{FRONTEND_URL}/verify?token={code}&email={email}"
+        msg = Message(subject="Verify your email - NAZMI Boutique", recipients=[email])
+        msg.body = (
+            f"Your verification code is {code}.\n\n"
+            "It expires in 15 minutes.\n\n"
+            f"You can also click: {verify_url}\n"
+        )
+        msg.html = f"""
+            <div style="font-family:Arial,sans-serif;max-width:580px;margin:auto">
+              <h2>Verify your email</h2>
+              <p>Your verification code is <b style="font-size:18px">{code}</b>.</p>
+              <p>This code expires in 15 minutes.</p>
+              <p>
+                Or click:
+                <a href="{verify_url}">{verify_url}</a>
+              </p>
+            </div>
+        """
+        _send_email_safe(msg)
+    except Exception as e:
+        app.logger.warning(f"[verify email] send skipped/logged: {e}")
 
 
 def _send_reset_email(email: str, reset_link: str):

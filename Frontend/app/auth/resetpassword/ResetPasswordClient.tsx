@@ -1,3 +1,4 @@
+// app/auth/resetpassword/ResetPasswordClient.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -85,7 +86,8 @@ export default function ResetPasswordClient() {
     else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password))
       newErrors.password = "Password must include uppercase, lowercase, and numbers";
 
-    if (!formData.confirmPassword) newErrors.confirmPassword = "Please confirm your password";
+    if (!formData.confirmPassword)
+      newErrors.confirmPassword = "Please confirm your password";
     else if (formData.password !== formData.confirmPassword)
       newErrors.confirmPassword = "Passwords do not match";
 
@@ -106,7 +108,11 @@ export default function ResetPasswordClient() {
         }),
       });
 
-      if (response.ok) return true;
+      if (response.ok) {
+        // ✅ Show success message for real backend reset
+        setMessage("🎉 Password reset successfully! Redirecting to login...");
+        return true;
+      }
 
       const errorData = await response.json().catch(() => ({}));
       setErrors({
@@ -121,6 +127,7 @@ export default function ResetPasswordClient() {
   };
 
   const handleDemoReset = (): boolean => {
+    // ✅ Same message for demo mode
     setMessage("🎉 Password reset successfully! Redirecting to login...");
     return true;
   };
@@ -191,12 +198,19 @@ export default function ResetPasswordClient() {
                 <span className="text-white font-bold text-2xl">N</span>
               </div>
             </Link>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Invalid Reset Link</h1>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              Invalid Reset Link
+            </h1>
           </div>
 
           <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6 text-center">
             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg
+                className="w-8 h-8 text-red-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -238,30 +252,29 @@ export default function ResetPasswordClient() {
               <span className="text-white font-bold text-2xl">N</span>
             </div>
           </Link>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Create New Password</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            Create New Password
+          </h1>
           <p className="text-gray-600 text-sm">Enter your new password below.</p>
         </div>
 
         {/* Card */}
         <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
-          {/* Backend Status */}
-          {backendStatus !== "checking" && (
-            <div
-              className={`mb-6 p-3 rounded-lg text-center text-sm ${
-                backendStatus === "online"
-                  ? "bg-green-50 text-green-700 border border-green-200"
-                  : "bg-yellow-50 text-yellow-700 border border-yellow-200"
-              }`}
-            >
-              {backendStatus === "online" ? "✅ Backend Connected" : "🔄 Using Demo Mode"}
-            </div>
-          )}
-
-          {/* Success */}
+          {/* ✅ Success */}
           {message && (
             <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
-              <svg className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
               <p className="text-green-700 text-sm">{message}</p>
             </div>
@@ -270,8 +283,18 @@ export default function ResetPasswordClient() {
           {/* General error */}
           {errors.general && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
               <p className="text-red-700 text-sm">{errors.general}</p>
             </div>
@@ -280,7 +303,10 @@ export default function ResetPasswordClient() {
           <form className="space-y-6" onSubmit={handleSubmit}>
             {/* Password */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 New Password
               </label>
               <div className="relative">
@@ -292,7 +318,9 @@ export default function ResetPasswordClient() {
                   value={formData.password}
                   onChange={handleChange}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors ${
-                    errors.password ? "border-red-300 bg-red-50" : "border-gray-300 hover:border-gray-400"
+                    errors.password
+                      ? "border-red-300 bg-red-50"
+                      : "border-gray-300 hover:border-gray-400"
                   }`}
                   placeholder="Enter your new password"
                   required
@@ -303,7 +331,9 @@ export default function ResetPasswordClient() {
                   onClick={() => setShowPassword((s) => !s)}
                 >
                   <svg
-                    className={`w-5 h-5 ${errors.password ? "text-red-400" : "text-gray-400"} hover:text-gray-600`}
+                    className={`w-5 h-5 ${
+                      errors.password ? "text-red-400" : "text-gray-400"
+                    } hover:text-gray-600`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -331,8 +361,12 @@ export default function ResetPasswordClient() {
               {formData.password && (
                 <div className="mt-2">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-gray-600">Password strength</span>
-                    <span className="text-xs font-medium text-gray-700">{strength.text}</span>
+                    <span className="text-xs text-gray-600">
+                      Password strength
+                    </span>
+                    <span className="text-xs font-medium text-gray-700">
+                      {strength.text}
+                    </span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
@@ -343,12 +377,17 @@ export default function ResetPasswordClient() {
                 </div>
               )}
 
-              {errors.password && <p className="mt-2 text-sm text-red-600">{errors.password}</p>}
+              {errors.password && (
+                <p className="mt-2 text-sm text-red-600">{errors.password}</p>
+              )}
             </div>
 
             {/* Confirm */}
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+              <label
+                htmlFor="confirmPassword"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
                 Confirm New Password
               </label>
               <div className="relative">
@@ -360,7 +399,9 @@ export default function ResetPasswordClient() {
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors ${
-                    errors.confirmPassword ? "border-red-300 bg-red-50" : "border-gray-300 hover:border-gray-400"
+                    errors.confirmPassword
+                      ? "border-red-300 bg-red-50"
+                      : "border-gray-300 hover:border-gray-400"
                   }`}
                   placeholder="Confirm your new password"
                   required
@@ -371,7 +412,9 @@ export default function ResetPasswordClient() {
                   onClick={() => setShowConfirmPassword((s) => !s)}
                 >
                   <svg
-                    className={`w-5 h-5 ${errors.confirmPassword ? "text-red-400" : "text-gray-400"} hover:text-gray-600`}
+                    className={`w-5 h-5 ${
+                      errors.confirmPassword ? "text-red-400" : "text-gray-400"
+                    } hover:text-gray-600`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -395,7 +438,9 @@ export default function ResetPasswordClient() {
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-2 text-sm text-red-600">{errors.confirmPassword}</p>
+                <p className="mt-2 text-sm text-red-600">
+                  {errors.confirmPassword}
+                </p>
               )}
             </div>
 
@@ -412,7 +457,12 @@ export default function ResetPasswordClient() {
                 </>
               ) : (
                 <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -444,16 +494,36 @@ export default function ResetPasswordClient() {
         <div className="mt-8 grid grid-cols-2 gap-4 text-center">
           <div className="text-xs text-gray-600 p-3 bg-white rounded-lg border border-gray-200">
             <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-1">
-              <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              <svg
+                className="w-4 h-4 text-amber-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
               </svg>
             </div>
             Secure Reset
           </div>
           <div className="text-xs text-gray-600 p-3 bg-white rounded-lg border border-gray-200">
             <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-1">
-              <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <svg
+                className="w-4 h-4 text-amber-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                />
               </svg>
             </div>
             Encrypted
