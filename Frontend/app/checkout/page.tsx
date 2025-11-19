@@ -43,19 +43,21 @@ const RZP_KEY_ID =
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 const SHIPPING_THRESHOLD = 2000;
 const SHIPPING_FEE = 60;
+
 const inr = (n: number | string) =>
-  `?${Number(n || 0).toLocaleString("en-IN")}`;
+  `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
 async function loadRazorpay(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (window.Razorpay) return true;
+  
   return new Promise((resolve) => {
-    const s = document.createElement("script");
-    s.src = "https://checkout.razorpay.com/v1/checkout.js";
-    s.async = true;
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.body.appendChild(s);
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
   });
 }
 
@@ -84,142 +86,158 @@ function CheckoutContent() {
   });
 
   // Determine login redirect target
-  const [loginUrl, setLoginUrl] = useState(
-    "/auth/login?redirect=%2Fcheckout"
-  );
+  const [loginUrl, setLoginUrl] = useState("/auth/login?redirect=%2Fcheckout");
+  
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const qs = window.location.search || "";
-    setLoginUrl(`/auth/login?redirect=${encodeURIComponent(`/checkout${qs}`)}`);
+    const queryString = window.location.search || "";
+    setLoginUrl(`/auth/login?redirect=${encodeURIComponent(`/checkout${queryString}`)}`);
   }, []);
 
   // Prefill from logged-in user
   useEffect(() => {
     if (!isAuthenticated || !user) return;
-    setShipping((s) => ({
-      ...s,
-      name:
-        s.name ||
-        [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-        (user as any).username ||
-        "",
-      email: s.email || (user.email || ""),
-      phone: s.phone || (user.phone ? String(user.phone) : ""),
+    
+    setShipping((prev) => ({
+      ...prev,
+      name: prev.name || 
+           [user.firstName, user.lastName].filter(Boolean).join(" ") || 
+           (user as any).username ||
+           "",
+      email: prev.email || user.email || "",
+      phone: prev.phone || (user.phone ? String(user.phone) : ""),
     }));
   }, [isAuthenticated, user]);
 
-  // Health
+  // Check backend health
   useEffect(() => {
-    (async () => {
+    const checkBackendHealth = async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/health`);
-        setBackendStatus(r.ok ? "online" : "offline");
+        const response = await fetch(`${API_BASE}/api/health`);
+        setBackendStatus(response.ok ? "online" : "offline");
       } catch {
         setBackendStatus("offline");
       }
-    })();
+    };
+
+    checkBackendHealth();
   }, []);
 
   // Load items (direct order or cart)
   useEffect(() => {
-    try {
-      const orderType = searchParams.get("type");
-      if (orderType === "direct") {
-        const directOrder = sessionStorage.getItem("directOrder");
-        if (directOrder) {
-          const items = JSON.parse(directOrder);
-          if (Array.isArray(items) && items.length) {
-            setCartItems(items);
-            setIsDirectOrder(true);
-            return;
+    const loadCartItems = () => {
+      try {
+        const orderType = searchParams.get("type");
+        
+        if (orderType === "direct") {
+          const directOrder = sessionStorage.getItem("directOrder");
+          if (directOrder) {
+            const items = JSON.parse(directOrder);
+            if (Array.isArray(items) && items.length > 0) {
+              setCartItems(items);
+              setIsDirectOrder(true);
+              return;
+            }
           }
-        }
-        alert("No direct order found. Please try again.");
-        router.back();
-      } else {
-        const cartData = localStorage.getItem("cart");
-        if (cartData) {
-          const items = JSON.parse(cartData);
-          if (Array.isArray(items) && items.length) {
-            setCartItems(items);
-            setIsDirectOrder(false);
-            return;
+          alert("No direct order found. Please try again.");
+          router.back();
+        } else {
+          const cartData = localStorage.getItem("cart");
+          if (cartData) {
+            const items = JSON.parse(cartData);
+            if (Array.isArray(items) && items.length > 0) {
+              setCartItems(items);
+              setIsDirectOrder(false);
+              return;
+            }
           }
+          router.push("/cart");
         }
+      } catch (error) {
+        console.error("Error loading cart items:", error);
         router.push("/cart");
       }
-    } catch {
-      router.push("/cart");
-    }
+    };
+
+    loadCartItems();
   }, [searchParams, router]);
 
-  // Totals
+  // Calculate totals
   const { subtotal, shippingFee, grandTotal } = useMemo(() => {
     const sub = cartItems.reduce(
-      (sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0),
+      (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
       0
     );
-    const sFee = sub >= SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
-    return { subtotal: sub, shippingFee: sFee, grandTotal: sub + sFee };
+    const fee = sub >= SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
+    return { 
+      subtotal: sub, 
+      shippingFee: fee, 
+      grandTotal: sub + fee 
+    };
   }, [cartItems]);
 
-  // Load saved addresses when logged in (multi-address default)
+  // Load saved addresses when logged in
   useEffect(() => {
-    (async () => {
+    const loadSavedAddresses = async () => {
       try {
-        const token =
-          typeof window !== "undefined"
-            ? localStorage.getItem("auth_token")
-            : null;
+        const token = localStorage.getItem("auth_token");
         if (!token) return;
-        const r = await fetch(`/api/user/addresses`, { cache: "no-store" });
-        if (!r.ok) return;
-        const data = (await r.json().catch(() => null)) as
+
+        const response = await fetch(`/api/user/addresses`, { 
+          cache: "no-store" 
+        });
+        
+        if (!response.ok) return;
+
+        const data = await response.json().catch(() => null) as
           | { addresses?: any[]; defaultId?: string }
           | null;
-        const list = data?.addresses ?? [];
-        if (!list.length) return;
-        const chosen = list.find((a: any) => a.isDefault) || list[0];
-        setShipping((s) => ({
-          ...s,
-          name: chosen.fullName || s.name,
-          phone: chosen.phone || s.phone,
-          address1: chosen.line1 || s.address1,
-          city: chosen.city || s.city,
-          state: chosen.state || s.state,
-          pincode: chosen.pincode || s.pincode,
+
+        const addresses = data?.addresses ?? [];
+        if (addresses.length === 0) return;
+
+        const defaultAddress = addresses.find((addr: any) => addr.isDefault) || addresses[0];
+        
+        setShipping((prev) => ({
+          ...prev,
+          name: defaultAddress.fullName || prev.name,
+          phone: defaultAddress.phone || prev.phone,
+          address1: defaultAddress.line1 || prev.address1,
+          city: defaultAddress.city || prev.city,
+          state: defaultAddress.state || prev.state,
+          pincode: defaultAddress.pincode || prev.pincode,
         }));
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error("Error loading saved addresses:", error);
       }
-    })();
+    };
+
+    loadSavedAddresses();
   }, []);
 
-  // Fallback: prefill from last saved address in Account (localStorage)
+  // Fallback: prefill from last saved address in localStorage
   useEffect(() => {
     try {
-      const raw =
-        typeof window !== "undefined"
-          ? localStorage.getItem("last_shipping_address")
-          : null;
-      if (!raw) return;
-      const a = JSON.parse(raw);
-      setShipping((s) => ({
-        ...s,
-        name: a.fullName || s.name,
-        phone: a.phone || s.phone,
-        address1: a.line1 || s.address1,
-        city: a.city || s.city,
-        state: a.state || s.state,
-        pincode: a.pincode || s.pincode,
+      const lastAddress = localStorage.getItem("last_shipping_address");
+      if (!lastAddress) return;
+
+      const address = JSON.parse(lastAddress);
+      setShipping((prev) => ({
+        ...prev,
+        name: address.fullName || prev.name,
+        phone: address.phone || prev.phone,
+        address1: address.line1 || prev.address1,
+        city: address.city || prev.city,
+        state: address.state || prev.state,
+        pincode: address.pincode || prev.pincode,
       }));
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error("Error loading last shipping address:", error);
     }
   }, []);
 
-  // Validation
-  const validateShippingDetails = () => {
+  // Validation function
+  const validateShippingDetails = (): boolean => {
     const required: (keyof ShippingInfo)[] = [
       "name",
       "email",
@@ -229,48 +247,53 @@ function CheckoutContent() {
       "state",
       "pincode",
     ];
-    for (const f of required) {
-      if (!String(shipping[f] || "").trim()) {
-        alert(
-          `Please fill in ${String(f)
-            .replace(/([A-Z])/g, " $1")
-            .toLowerCase()}`
-        );
+
+    for (const field of required) {
+      if (!String(shipping[field] || "").trim()) {
+        const fieldName = field.replace(/([A-Z])/g, " $1").toLowerCase();
+        alert(`Please fill in ${fieldName}`);
         return false;
       }
     }
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(shipping.email)) {
       alert("Please enter a valid email address");
       return false;
     }
+
     const phoneDigits = shipping.phone.replace(/\D/g, "");
     if (!/^[6-9]\d{9}$/.test(phoneDigits)) {
       alert("Please enter a valid 10-digit phone number");
       return false;
     }
+
     if (!/^\d{6}$/.test(shipping.pincode.trim())) {
       alert("Please enter a valid 6-digit pincode");
       return false;
     }
+
     return true;
   };
 
-  // === Pay with Razorpay (and attach user token if present) ===
+  // Payment handler
   const payWithRazorpay = async () => {
     if (backendStatus === "offline") {
       alert("Backend server is currently offline. Please try again later.");
       return;
     }
-    if (!cartItems.length) {
+
+    if (cartItems.length === 0) {
       alert("Your cart is empty.");
       router.push("/cart");
       return;
     }
+
     if (!validateShippingDetails()) return;
 
     setLoading(true);
+
     try {
-      // Save for account prefill
+      // Save address for future prefill
       localStorage.setItem(
         "last_shipping_address",
         JSON.stringify({
@@ -283,10 +306,10 @@ function CheckoutContent() {
         })
       );
 
-      const token = localStorage.getItem("auth_token"); // your auth token key
+      const token = localStorage.getItem("auth_token");
 
-      // 1) Create internal order (associate to user if token present)
-      const orderRes = await fetch(`${API_BASE}/api/orders`, {
+      // 1) Create internal order
+      const orderResponse = await fetch(`${API_BASE}/api/orders`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -304,15 +327,15 @@ function CheckoutContent() {
             state: shipping.state,
             pincode: shipping.pincode,
           },
-          items: cartItems.map((i) => ({
-            product_id: i.productId,
-            name: i.name,
-            price: i.price,
-            quantity: i.quantity,
-            size: i.size,
-            color: i.color,
-            image: i.image,
-            product_code: i.productCode,
+          items: cartItems.map((item) => ({
+            product_id: item.productId,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            size: item.size,
+            color: item.color,
+            image: item.image,
+            product_code: item.productCode,
           })),
           subtotal,
           shipping_fee: shippingFee,
@@ -321,33 +344,51 @@ function CheckoutContent() {
           order_type: isDirectOrder ? "direct" : "cart",
         }),
       });
-      const orderJson = await orderRes.json();
-      if (!orderRes.ok) throw new Error(orderJson?.error || "Failed to create order");
-      const orderId: string = orderJson.order_id;
-      if (!orderId) throw new Error("No order ID returned from server");
 
-      // 2) Razorpay order
-      const rpRes = await fetch(`${API_BASE}/api/payments/razorpay/create-order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: orderId }),
-      });
-      const rpJson = await rpRes.json();
-      if (!rpRes.ok) throw new Error(rpJson?.error || "Payment setup failed");
-      if (!rpJson.razorpay_order_id || !rpJson.amount)
+      const orderData = await orderResponse.json();
+      
+      if (!orderResponse.ok) {
+        throw new Error(orderData?.error || "Failed to create order");
+      }
+
+      const orderId: string = orderData.order_id;
+      if (!orderId) {
+        throw new Error("No order ID returned from server");
+      }
+
+      // 2) Create Razorpay order
+      const razorpayResponse = await fetch(
+        `${API_BASE}/api/payments/razorpay/create-order`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: orderId }),
+        }
+      );
+
+      const razorpayData = await razorpayResponse.json();
+      
+      if (!razorpayResponse.ok) {
+        throw new Error(razorpayData?.error || "Payment setup failed");
+      }
+
+      if (!razorpayData.razorpay_order_id || !razorpayData.amount) {
         throw new Error("Invalid Razorpay order response");
+      }
 
-      // 3) SDK
-      if (!(await loadRazorpay())) throw new Error("Failed to load payment gateway");
+      // 3) Load Razorpay SDK
+      if (!(await loadRazorpay())) {
+        throw new Error("Failed to load payment gateway");
+      }
 
-      // 4) Open Razorpay
-      const rzp = new window.Razorpay({
+      // 4) Open Razorpay checkout
+      const razorpay = new window.Razorpay({
         key: RZP_KEY_ID,
-        amount: rpJson.amount,
+        amount: razorpayData.amount,
         currency: "INR",
         name: "Nazmi Boutique",
         description: `Order for ${cartItems.length} item(s)`,
-        order_id: rpJson.razorpay_order_id,
+        order_id: razorpayData.razorpay_order_id,
         prefill: {
           name: shipping.name,
           email: shipping.email,
@@ -370,38 +411,41 @@ function CheckoutContent() {
                 body: JSON.stringify({
                   order_id: orderId,
                   status: "cancelled",
-                  razorpay_order_id: rpJson.razorpay_order_id,
+                  razorpay_order_id: razorpayData.razorpay_order_id,
                 }),
               });
             } catch {
-              // ignore
+              // Ignore logging errors
             }
           },
         },
         retry: { enabled: false },
         timeout: 900,
-        handler: async (resp: any) => {
+        handler: async (response: any) => {
           try {
             // Verify payment
-            const verifyRes = await fetch(
+            const verifyResponse = await fetch(
               `${API_BASE}/api/payments/razorpay/verify`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  razorpay_payment_id: resp.razorpay_payment_id,
-                  razorpay_order_id: resp.razorpay_order_id,
-                  razorpay_signature: resp.razorpay_signature,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_signature: response.razorpay_signature,
                 }),
               }
             );
-            const verifyJson = await verifyRes.json();
-            if (!verifyRes.ok || !verifyJson.success)
-              throw new Error(
-                verifyJson?.error || "Payment verification failed"
-              );
 
-            // Clear cart/local
+            const verifyData = await verifyResponse.json();
+            
+            if (!verifyResponse.ok || !verifyData.success) {
+              throw new Error(
+                verifyData?.error || "Payment verification failed"
+              );
+            }
+
+            // Clear cart/local storage
             if (isDirectOrder) {
               sessionStorage.removeItem("directOrder");
             } else {
@@ -410,9 +454,9 @@ function CheckoutContent() {
             }
 
             setLoading(false);
-            // Go to Orders tab
+            // Redirect to orders page
             router.push("/account?tab=orders");
-          } catch (err: any) {
+          } catch (error: any) {
             try {
               await fetch(`/api/payments/attempt-log`, {
                 method: "POST",
@@ -420,25 +464,27 @@ function CheckoutContent() {
                 body: JSON.stringify({
                   order_id: orderId,
                   status: "failed",
-                  razorpay_order_id: resp?.razorpay_order_id,
-                  razorpay_payment_id: resp?.razorpay_payment_id,
-                  reason: err?.message,
+                  razorpay_order_id: response?.razorpay_order_id,
+                  razorpay_payment_id: response?.razorpay_payment_id,
+                  reason: error?.message,
                 }),
               });
             } catch {
-              // ignore
+              // Ignore logging errors
             }
-            alert(`Payment verification failed: ${err.message}`);
+            
+            alert(`Payment verification failed: ${error.message}`);
             setLoading(false);
           }
         },
       });
 
-      rzp.on("payment.failed", (r: any) => {
-        const msg =
-          r?.error?.description ||
-          r?.error?.reason ||
+      razorpay.on("payment.failed", (response: any) => {
+        const errorMessage =
+          response?.error?.description ||
+          response?.error?.reason ||
           "Payment failed. Please try again.";
+        
         try {
           fetch(`/api/payments/attempt-log`, {
             method: "POST",
@@ -446,31 +492,35 @@ function CheckoutContent() {
             body: JSON.stringify({
               order_id: orderId,
               status: "failed",
-              razorpay_order_id: rpJson.razorpay_order_id,
-              reason: msg,
+              razorpay_order_id: razorpayData.razorpay_order_id,
+              reason: errorMessage,
             }),
           });
         } catch {
-          // ignore
+          // Ignore logging errors
         }
-        alert(`Payment Failed: ${msg}`);
+        
+        alert(`Payment Failed: ${errorMessage}`);
         setLoading(false);
       });
 
-      rzp.open();
-    } catch (e: any) {
-      const m = String(e?.message || "");
-      if (m.includes("Failed to fetch") || m.includes("NetworkError")) {
-        alert("NETWORK ERROR\n\nPlease check your internet and try again.");
-      } else if (m.includes("offline")) {
+      razorpay.open();
+    } catch (error: any) {
+      const errorMessage = String(error?.message || "");
+      
+      if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+        alert("NETWORK ERROR\n\nPlease check your internet connection and try again.");
+      } else if (errorMessage.includes("offline")) {
         alert("SERVICE UNAVAILABLE\n\nPlease try again in a few minutes.");
       } else {
-        alert(`Payment Error\n\n${m || "Please try again."}`);
+        alert(`Payment Error\n\n${errorMessage || "Please try again."}`);
       }
+      
       setLoading(false);
     }
   };
 
+  // Damaged Products Policy Component
   const DamagedProductsPolicy = () => (
     <div className="border-t pt-6 mt-6">
       <div className="space-y-4">
@@ -537,6 +587,7 @@ function CheckoutContent() {
     </div>
   );
 
+  // Order Summary Component
   const renderOrderSummary = () => (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5">
@@ -545,7 +596,7 @@ function CheckoutContent() {
             Order Summary
           </h2>
           <span className="text-xs text-gray-500">
-            {cartItems.length} item{cartItems.length > 1 ? "s" : ""}
+            {cartItems.length} item{cartItems.length !== 1 ? "s" : ""}
           </span>
         </div>
         <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
@@ -568,8 +619,8 @@ function CheckoutContent() {
                   {item.name}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {item.size && `Size: ${item.size}`}{" "}
-                  {item.size && item.color && " • "}{" "}
+                  {item.size && `Size: ${item.size}`}
+                  {item.size && item.color && " • "}
                   {item.color && `Color: ${item.color}`}
                 </p>
                 <p className="text-xs text-gray-500">
@@ -630,6 +681,7 @@ function CheckoutContent() {
     </div>
   );
 
+  // Loading state
   if (authLoading) {
     return (
       <section className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -641,6 +693,7 @@ function CheckoutContent() {
     );
   }
 
+  // Authentication check
   if (!isAuthenticated) {
     return (
       <section className="min-h-screen bg-[#fbfaf8] flex items-center justify-center px-4">
@@ -672,7 +725,8 @@ function CheckoutContent() {
     );
   }
 
-  if (!cartItems.length) {
+  // Empty cart state
+  if (cartItems.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="text-center">
@@ -719,9 +773,9 @@ function CheckoutContent() {
         </div>
       </div>
 
-      {/* Layout */}
+      {/* Main Layout */}
       <main className="max-w-6xl mx-auto px-4 pt-4 lg:pt-8 grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1.25fr)] gap-6 lg:gap-8">
-        {/* LEFT: Shipping Form + Pay */}
+        {/* LEFT: Shipping Form + Payment */}
         <section>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
             <h2 className="text-base font-semibold text-gray-900 mb-4">
@@ -736,7 +790,7 @@ function CheckoutContent() {
                   type="text"
                   value={shipping.name}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, name: e.target.value }))
+                    setShipping((prev) => ({ ...prev, name: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="Enter your full name"
@@ -751,7 +805,7 @@ function CheckoutContent() {
                   type="email"
                   value={shipping.email}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, email: e.target.value }))
+                    setShipping((prev) => ({ ...prev, email: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="example@gmail.com"
@@ -766,7 +820,7 @@ function CheckoutContent() {
                   type="tel"
                   value={shipping.phone}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, phone: e.target.value }))
+                    setShipping((prev) => ({ ...prev, phone: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="10-digit mobile number"
@@ -781,7 +835,7 @@ function CheckoutContent() {
                   type="text"
                   value={shipping.address1}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, address1: e.target.value }))
+                    setShipping((prev) => ({ ...prev, address1: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="House / Building / Street / Landmark"
@@ -796,7 +850,7 @@ function CheckoutContent() {
                   type="text"
                   value={shipping.city}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, city: e.target.value }))
+                    setShipping((prev) => ({ ...prev, city: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="City"
@@ -811,7 +865,7 @@ function CheckoutContent() {
                   type="text"
                   value={shipping.state}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, state: e.target.value }))
+                    setShipping((prev) => ({ ...prev, state: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="State"
@@ -826,7 +880,7 @@ function CheckoutContent() {
                   type="text"
                   value={shipping.pincode}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, pincode: e.target.value }))
+                    setShipping((prev) => ({ ...prev, pincode: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="6-digit pincode"
@@ -841,7 +895,7 @@ function CheckoutContent() {
                   type="text"
                   value={shipping.country}
                   onChange={(e) =>
-                    setShipping((s) => ({ ...s, country: e.target.value }))
+                    setShipping((prev) => ({ ...prev, country: e.target.value }))
                   }
                   className="w-full p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-black focus:border-transparent"
                   placeholder="Country"
@@ -853,7 +907,7 @@ function CheckoutContent() {
               <button
                 onClick={payWithRazorpay}
                 disabled={loading}
-                className="w-full inline-flex items-center justify-center gap-2 bg-black text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-gray-900 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="w-full inline-flex items-center justify-center gap-2 bg-black text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-gray-900 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 {loading ? (
                   <>
@@ -874,11 +928,11 @@ function CheckoutContent() {
           </div>
         </section>
 
-        {/* RIGHT: Summary (desktop) */}
+        {/* RIGHT: Order Summary (desktop) */}
         <aside className="hidden lg:block">{renderOrderSummary()}</aside>
       </main>
 
-      {/* Mobile summary bottom sheet */}
+      {/* Mobile Order Summary Bottom Sheet */}
       {showOrderSummary && (
         <div className="fixed inset-0 z-40 bg-black/40 flex justify-center items-end lg:hidden">
           <div className="bg-white rounded-t-2xl w-full max-h-[80vh] p-4 shadow-xl">
@@ -919,4 +973,3 @@ export default function CheckoutPage() {
     </Suspense>
   );
 }
-
